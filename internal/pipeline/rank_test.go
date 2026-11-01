@@ -216,6 +216,10 @@ func TestScoreLimit(t *testing.T) {
 	}
 	check("inactive, email off", 0)
 	env.Mail.Provider = "log"
+	check("inactive, address not confirmed", 0)
+	if ok, err := store.MarkEmailVerified(ctx, pool, u.ID, u.Email); err != nil || !ok {
+		t.Fatalf("confirm: %v %v", ok, err)
+	}
 	check("inactive, digest on", 9)
 	if err := store.SaveSettings(ctx, pool, u.ID, func() store.Settings {
 		s := store.DefaultSettings()
