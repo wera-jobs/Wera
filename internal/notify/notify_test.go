@@ -81,3 +81,20 @@ func TestFirstSentence(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestSendWelcomeOnce(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	s := &Service{Pool: pool, Mailer: &flaky{}, Log: slog.Default(), Config: mail.Config{Provider: "log", From: "Wera <hello@wera.test>", PublicURL: "https://wera.test"}}
+	u := testutil.User(t, pool, false)
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM email_outbox WHERE user_id = $1`, u.ID) })
+	for range 2 {
+		if err := s.SendWelcome(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM email_outbox WHERE user_id = $1 AND tag = 'welcome'`, u.ID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("welcome emails: %d, %v", n, err)
+	}
+}

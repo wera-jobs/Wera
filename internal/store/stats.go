@@ -51,6 +51,13 @@ func RecentRuns(ctx context.Context, pool *pgxpool.Pool, limit int) ([]RunView, 
 	return out, rows.Err()
 }
 
+// CatalogSize counts the companies Wera watches and their industries.
+func CatalogSize(ctx context.Context, pool *pgxpool.Pool) (companies, industries int, err error) {
+	err = pool.QueryRow(ctx, `SELECT count(*), count(DISTINCT industry) FROM companies WHERE enabled AND ats <> 'manual'`).
+		Scan(&companies, &industries)
+	return companies, industries, err
+}
+
 // CompanyView is one row of GET /api/companies.
 type CompanyView struct {
 	ID             int64      `json:"id"`

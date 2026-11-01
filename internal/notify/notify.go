@@ -97,8 +97,15 @@ func (s *Service) SendReset(ctx context.Context, email string) error {
 	return s.queue(ctx, &u.ID, u.Email, "reset", mail.Reset{Base: s.base(u.Email, u.Name), Link: s.link("/reset-password", token), ExpiresIn: "1 hour"}, nil)
 }
 
-// SendWelcome greets a new account.
-func (s *Service) SendWelcome(ctx context.Context, u *store.User, companies, industries int) error {
+// SendWelcome greets an account the first time it confirms an address.
+func (s *Service) SendWelcome(ctx context.Context, u *store.User) error {
+	if sent, err := store.EmailSent(ctx, s.Pool, u.ID, "welcome"); err != nil || sent {
+		return err
+	}
+	companies, industries, err := store.CatalogSize(ctx, s.Pool)
+	if err != nil {
+		return err
+	}
 	d := mail.Sample("welcome", s.Config.PublicURL, u.Email, u.Name).(mail.Welcome)
 	d.Companies, d.Industries = companies, industries
 	return s.queue(ctx, &u.ID, u.Email, "welcome", d, nil)

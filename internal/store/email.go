@@ -83,6 +83,15 @@ func RecentEmailCount(ctx context.Context, pool *pgxpool.Pool, userID int64, tag
 	return n, err
 }
 
+// EmailSent reports whether an email with tag has gone to the user, or
+// is on its way.
+func EmailSent(ctx context.Context, pool *pgxpool.Pool, userID int64, tag string) (bool, error) {
+	var sent bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM email_outbox WHERE user_id = $1 AND tag = $2 AND status <> 'failed')`,
+		userID, tag).Scan(&sent)
+	return sent, err
+}
+
 // OutboxEmail is a queued email.
 type OutboxEmail struct {
 	ID       int64             `json:"id"`

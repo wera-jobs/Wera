@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -78,7 +79,20 @@ func (s *Server) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "could not confirm the address")
 		return
 	}
+	s.welcome(r.Context(), email)
 	s.writeJSON(w, http.StatusOK, map[string]any{"verified": true, "email": email})
+}
+
+// welcome greets the account behind a newly confirmed address. The address
+// is confirmed either way, so a failure here is only logged.
+func (s *Server) welcome(ctx context.Context, email string) {
+	u, err := store.UserByEmail(ctx, s.Pool, email)
+	if err == nil {
+		err = s.Notify.SendWelcome(ctx, u)
+	}
+	if err != nil {
+		s.Log.Error("welcome email failed", "err", err)
+	}
 }
 
 // forgotPassword is POST /api/auth/password/forgot {email}. The answer is
