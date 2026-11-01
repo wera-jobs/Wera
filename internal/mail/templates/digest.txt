@@ -1,6 +1,6 @@
 {{define "text"}}Your best matches {{.Period}}
 
-{{.NewCount}} new postings matched your filters {{.Period}}. These fit you best:
+Wera scored {{if eq .NewCount 1}}1 new job{{else}}{{.NewCount}} new jobs{{end}} for you {{.Period}}. These fit you best:
 {{range .Jobs}}
 [{{.Score}}] {{.Title}}, {{.Company}}{{if .Location}} ({{.Location}}){{end}}{{if .Sponsorship}} · {{.Sponsorship}}{{end}}
 {{if .Reason}}    {{.Reason}}

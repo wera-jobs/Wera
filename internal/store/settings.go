@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Settings are a user's preferences outside matching. Notification
-// settings are stored now and used once notifications ship.
+// Settings are a user's preferences outside matching. StrongMatches and
+// ProductUpdates are stored, but nothing sends those emails yet.
 type Settings struct {
 	Theme         string        `json:"theme"`        // system | light | dark
 	DefaultSort   string        `json:"default_sort"` // score | newest
@@ -50,13 +50,18 @@ func (s *Settings) Validate() error {
 
 // GetSettings returns a user's settings with defaults for missing keys.
 func GetSettings(ctx context.Context, pool *pgxpool.Pool, userID int64) (Settings, error) {
-	s := DefaultSettings()
 	var raw []byte
 	if err := pool.QueryRow(ctx, `SELECT settings FROM users WHERE id = $1`, userID).Scan(&raw); err != nil {
-		return s, err
+		return DefaultSettings(), err
 	}
-	_ = json.Unmarshal(raw, &s) // keys present override the defaults
-	return s, nil
+	return decodeSettings(raw), nil
+}
+
+// decodeSettings reads stored settings; keys present override the defaults.
+func decodeSettings(raw []byte) Settings {
+	s := DefaultSettings()
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 // SaveSettings stores a user's settings.

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,6 +46,22 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 		scored = append(scored, estimated...)
 	}
 	return scored, pending, nil
+}
+
+// NewMatches returns the user's open, unapplied jobs first scored for them
+// since a time, best first. Scoring can come days after a job is first
+// seen, and a profile edit rescores jobs the user already knows, so the
+// job's first score for this user is what makes it new.
+func NewMatches(ctx context.Context, pool *pgxpool.Pool, userID int64, since time.Time, limit int) ([]JobView, error) {
+	return queryJobViews(ctx, pool, jobViewSelect+`
+	  AND j.closed_at IS NULL
+	  AND uj.stage = 'scored'
+	  AND (ap.status IS NULL OR ap.status = 'saved')
+	  AND a.created_at >= $2
+	  AND NOT EXISTS (SELECT 1 FROM analyses old
+	                  WHERE old.user_id = uj.user_id AND old.job_id = uj.job_id AND old.kind = 'score' AND old.created_at < $2)
+	ORDER BY a.fit_score DESC NULLS LAST, j.first_seen_at DESC
+	LIMIT $3`, userID, since, normalizeLimit(limit, 100, 200))
 }
 
 func queryJobViews(ctx context.Context, pool *pgxpool.Pool, sqlText string, args ...any) ([]JobView, error) {

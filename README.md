@@ -66,11 +66,12 @@ A file covers one quarter or the fiscal year to date (up to 450,000 rows, 250 MB
 
 ## Email
 
-Email is built but off until a provider is set. With it on, Wera confirms new accounts' addresses, sends password reset links (single use, one hour, and every session ends), and can send daily digests and strong-match alerts from templates with HTML and plain-text versions. Mail is queued in the database and delivered with retries, so a slow provider never slows a request.
+Email is built but off until a provider is set. With it on, Wera confirms new accounts' addresses, sends password reset links (single use, one hour, and every session ends), welcomes each account once its address is confirmed, and sends confirmed addresses a daily or weekly digest of their best new matches after the day's first pipeline run. Strong-match alerts are not built yet. Templates have HTML and plain-text versions. Mail is queued in the database and delivered with retries, so a slow provider never slows a request.
 
 ```bash
 wera mail preview --out email-preview      # every template with sample data; open the .html files
 wera mail digest --email you@example.com    # your real digest, rendered to a file (sends nothing)
+wera mail digests                           # queue every digest that is due (the worker does this after a run)
 ```
 
 Admins can also preview each template, and send a test, from the admin app (wera-admin).
