@@ -69,7 +69,7 @@ func LoadEnv() (*Env, error) {
 		RunInterval:          30 * time.Minute,
 		HTTPAddr:             "127.0.0.1:8080",
 		LogFormat:            "text",
-		UserAgent:            "Wera/" + strings.TrimPrefix(buildinfo.Version, "v") + " (personal job tracker; contact: jessechumo@gmail.com)",
+		UserAgent:            "Wera/" + strings.TrimPrefix(buildinfo.Version, "v") + " (+https://www.wera-jobs.com; contact: jessechumo@gmail.com)",
 		MaxCostPerRunUSD:     1.00,
 		UserBudgetUSD:        10,
 		MaxMonthlyCostUSD:    100,
