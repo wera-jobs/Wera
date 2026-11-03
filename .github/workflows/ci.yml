@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Shellcheck
-        run: shellcheck deploy/hetzner/*.sh scripts/*.sh
+        run: shellcheck deploy/hetzner/*.sh deploy/home/*.sh scripts/*.sh
 
   docker:
     name: Docker build

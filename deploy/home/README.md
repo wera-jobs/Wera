@@ -49,3 +49,23 @@ docker compose --profile public up -d --no-deps wera-tunnel
 
 Do not run the `cloudflared service install` command Cloudflare shows: that
 connector would run outside Docker and could not reach `wera-api-public`.
+
+## Backups
+
+Back up before every deploy, with the release as the label:
+
+```bash
+deploy/home/backup.sh v0.13.0
+```
+
+That dumps the database to `~/wera-backups`, checks the file, and deletes
+backups older than 29 days. The privacy policy promises that deleted accounts
+leave the backups within 30 days, so keep the daily cleanup in cron too:
+
+```bash
+30 3 * * * /home/nick/Documents/jesse/wera/deploy/home/backup.sh --prune >> /home/nick/wera-backups/prune.log 2>&1
+```
+
+If nothing has been deployed for 29 days, the cleanup takes a fresh backup
+before deleting the old one, so there is always a backup and none is older than
+the limit. If the limit in the policy changes, change `BACKUP_DAYS` with it.
