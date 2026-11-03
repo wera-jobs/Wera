@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Settings are a user's preferences outside matching. Notification
-// settings are stored now and used once notifications ship.
+// Settings are a user's preferences outside matching. StrongMatches and
+// ProductUpdates are stored, but nothing sends those emails yet.
 type Settings struct {
 	Theme         string        `json:"theme"`        // system | light | dark
 	DefaultSort   string        `json:"default_sort"` // score | newest
@@ -50,13 +51,18 @@ func (s *Settings) Validate() error {
 
 // GetSettings returns a user's settings with defaults for missing keys.
 func GetSettings(ctx context.Context, pool *pgxpool.Pool, userID int64) (Settings, error) {
-	s := DefaultSettings()
 	var raw []byte
 	if err := pool.QueryRow(ctx, `SELECT settings FROM users WHERE id = $1`, userID).Scan(&raw); err != nil {
-		return s, err
+		return DefaultSettings(), err
 	}
-	_ = json.Unmarshal(raw, &s) // keys present override the defaults
-	return s, nil
+	return decodeSettings(raw), nil
+}
+
+// decodeSettings reads stored settings; keys present override the defaults.
+func decodeSettings(raw []byte) Settings {
+	s := DefaultSettings()
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 // SaveSettings stores a user's settings.
@@ -109,11 +115,24 @@ func SetCompanyHidden(ctx context.Context, pool *pgxpool.Pool, userID, companyID
 	return err
 }
 
-// DeleteUser removes an account and, through cascades, everything that
-// belongs to it (profile, matches, applications, letters, files,
-// sessions). Shared job facts and analyses paid for by the user stay,
-// detached from them.
+// DeleteUser removes an account and everything personal it left behind.
+// Most tables cascade. Two keep rows for the sake of the books, so their
+// personal parts go here: mail in the outbox, and what the AI wrote about
+// this person, whose cost still counts toward the month's budgets. A score
+// another user's identical profile also reads stays whole.
 func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int64) error {
-	_, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
-	return err
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM email_outbox WHERE user_id = $1`, userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE analyses a
+			SET reason = NULL, raw = '{}', skills_matched = NULL, skills_missing = NULL
+			WHERE a.user_id = $1 AND a.kind IN ('score', 'deep')
+			  AND NOT EXISTS (SELECT 1 FROM user_jobs uj WHERE uj.analysis_id = a.id AND uj.user_id <> $1)`, userID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		return err
+	})
 }

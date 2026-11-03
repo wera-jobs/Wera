@@ -15,7 +15,7 @@ import (
 	"wera/internal/notify"
 )
 
-func mailServer(t *testing.T) (string, func(tag, to string) string) {
+func mailServer(t *testing.T) (string, func(tag, to string) string, func(tag, to string) int) {
 	t.Helper()
 	ts, pool := testServerWith(t, nil, func(s *Server) {
 		s.Notify = &notify.Service{Pool: s.Pool, Mailer: &mail.Log{From: "Wera <hello@wera.test>"}, Log: slog.Default(),
@@ -34,11 +34,18 @@ func mailServer(t *testing.T) (string, func(tag, to string) string) {
 		}
 		return m[1]
 	}
-	return ts.URL, latest
+	count := func(tag, to string) int {
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM email_outbox WHERE tag = $1 AND to_addr = $2`, tag, to).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	return ts.URL, latest, count
 }
 
 func TestEmailVerificationAndPasswordReset(t *testing.T) {
-	base, latest := mailServer(t)
+	base, latest, count := mailServer(t)
 	jar, _ := cookiejar.New(nil)
 	user := &http.Client{Jar: jar}
 	email := fmt.Sprintf("mail-%d@example.com", time.Now().UnixNano())
@@ -59,6 +66,9 @@ func TestEmailVerificationAndPasswordReset(t *testing.T) {
 	}
 	if _, body := do(t, user, http.MethodGet, base+"/api/auth/me", ""); !strings.Contains(body, `"email_verified":true`) {
 		t.Errorf("after: %s", body)
+	}
+	if n := count("welcome", email); n != 1 {
+		t.Errorf("welcome emails after confirming: %d, want 1", n)
 	}
 	if code, _ := do(t, &http.Client{}, http.MethodPost, base+"/api/auth/verify-email", `{"token":"`+token+`"}`); code != 400 {
 		t.Errorf("reused link: want 400, got %d", code)

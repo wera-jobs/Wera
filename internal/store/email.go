@@ -83,6 +83,49 @@ func RecentEmailCount(ctx context.Context, pool *pgxpool.Pool, userID int64, tag
 	return n, err
 }
 
+// EmailSent reports whether an email with tag has gone to the user, or
+// is on its way.
+func EmailSent(ctx context.Context, pool *pgxpool.Pool, userID int64, tag string) (bool, error) {
+	var sent bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM email_outbox WHERE user_id = $1 AND tag = $2 AND status <> 'failed')`,
+		userID, tag).Scan(&sent)
+	return sent, err
+}
+
+// DigestRecipient is an account with a confirmed address and digests on.
+type DigestRecipient struct {
+	User      *User
+	Frequency string     // daily | weekly
+	Last      *time.Time // when their last digest was queued; nil before the first
+}
+
+// DigestRecipients lists everyone who gets digests. A digest that could
+// not be delivered does not count as their last.
+func DigestRecipients(ctx context.Context, pool *pgxpool.Pool) ([]DigestRecipient, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT `+userColumns+`, settings,
+		       (SELECT max(o.created_at) FROM email_outbox o
+		        WHERE o.user_id = users.id AND o.tag = 'digest' AND o.status <> 'failed')
+		FROM users WHERE email_verified_at IS NOT NULL ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DigestRecipient
+	for rows.Next() {
+		var u User
+		var raw []byte
+		var last *time.Time
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.CreatedAt, &raw, &last); err != nil {
+			return nil, err
+		}
+		if s := decodeSettings(raw); s.Notifications.EmailDigest {
+			out = append(out, DigestRecipient{User: &u, Frequency: s.Notifications.Frequency, Last: last})
+		}
+	}
+	return out, rows.Err()
+}
+
 // OutboxEmail is a queued email.
 type OutboxEmail struct {
 	ID       int64             `json:"id"`

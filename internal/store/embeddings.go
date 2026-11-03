@@ -158,12 +158,13 @@ type ScoreActivity struct {
 	ScoredLastDay   int        // AI scores in the last 24 hours
 	ScoredProfile   bool       // any AI score exists for the current profile text
 	LastSeen        *time.Time // last use of the dashboard or extension
-	DigestRequested bool       // digest emails are on in their settings
+	DigestRequested bool       // they get digests: on in their settings, address confirmed
 }
 
 // UserScoreActivity loads a user's recent scoring and activity.
 func UserScoreActivity(ctx context.Context, pool *pgxpool.Pool, userID int64, profileHash string) (ScoreActivity, error) {
 	var a ScoreActivity
+	var confirmed *time.Time
 	err := pool.QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM analyses a
 		        WHERE a.user_id = $1 AND a.kind = 'score' AND a.created_at > now() - interval '24 hours'
@@ -171,8 +172,8 @@ func UserScoreActivity(ctx context.Context, pool *pgxpool.Pool, userID int64, pr
 		          AND NOT EXISTS (SELECT 1 FROM analyses b WHERE b.job_id = a.job_id AND b.kind = 'score'
 		                          AND b.user_id = $1 AND b.created_at < a.created_at)),
 		       EXISTS (SELECT 1 FROM analyses WHERE user_id = $1 AND kind = 'score' AND profile_hash = $2),
-		       u.last_seen_at
-		FROM users u WHERE u.id = $1`, userID, profileHash).Scan(&a.ScoredLastDay, &a.ScoredProfile, &a.LastSeen)
+		       u.last_seen_at, u.email_verified_at
+		FROM users u WHERE u.id = $1`, userID, profileHash).Scan(&a.ScoredLastDay, &a.ScoredProfile, &a.LastSeen, &confirmed)
 	if err != nil {
 		return a, fmt.Errorf("load score activity: %w", err)
 	}
@@ -180,7 +181,7 @@ func UserScoreActivity(ctx context.Context, pool *pgxpool.Pool, userID int64, pr
 	if err != nil {
 		return a, err
 	}
-	a.DigestRequested = s.Notifications.EmailDigest
+	a.DigestRequested = s.Notifications.EmailDigest && confirmed != nil
 	return a, nil
 }
 

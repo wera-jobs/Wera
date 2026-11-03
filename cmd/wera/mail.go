@@ -23,6 +23,7 @@ const mailUsage = `usage:
   wera mail test --to ADDRESS              send the setup test (needs MAIL_PROVIDER)
   wera mail digest --email E [--days 1] [--out DIR]
                                            render a user's real digest to a file (sends nothing)
+  wera mail digests                        queue every digest that is due (the worker does this after a run)
   wera mail send                           deliver queued email now
 
 Email is off until MAIL_PROVIDER is set: "log" (development: messages go
@@ -106,13 +107,18 @@ func runMail(ctx context.Context, args []string) error {
 			return err
 		}
 		return write("digest-"+fmt.Sprint(u.ID), r)
-	case "test", "send":
+	case "test", "send", "digests":
 		svc, err := notify.New(pool, env.Mail, slog.Default())
 		if err != nil {
 			return err
 		}
 		if !svc.Enabled() {
 			return mail.ErrDisabled
+		}
+		if sub == "digests" {
+			n, err := svc.QueueDigests(ctx, time.Now().In(env.RunZone))
+			fmt.Printf("queued %d\n", n)
+			return err
 		}
 		if sub == "test" {
 			if *to == "" {

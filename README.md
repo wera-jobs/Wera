@@ -7,7 +7,7 @@
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
 [![License](https://img.shields.io/github/license/wera-jobs/Wera)](LICENSE)
 
-**Wera** (Swahili slang for a job or gig) is a self-hosted job radar. It collects postings from public job-board feeds (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Oracle Recruiting Cloud, Workable, Rippling, Eightfold, and amazon.jobs) for 5,100+ companies across 30 industries (tech firms, but also hospitals, schools, retailers, restaurants and nonprofits), filters them with configurable rules, scores each one against your resume with an LLM from any OpenAI-compatible provider (presets for [Coral Bricks](https://www.coralbricks.ai) and [DeepInfra](https://deepinfra.com)), and serves the results through a REST API. Wera does not apply on your behalf. You review the matches and apply yourself.
+**Wera** (Swahili slang for a job or gig) is a job search service at [wera-jobs.com](https://www.wera-jobs.com), and this repository is its backend. It collects postings from public job-board feeds (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Oracle Recruiting Cloud, Workable, Rippling, Eightfold, and amazon.jobs) for 5,100+ companies across 30 industries (tech firms, but also hospitals, schools, retailers, restaurants and nonprofits), filters them with configurable rules, ranks them for each person, scores the best against their resume with an LLM from any OpenAI-compatible provider (presets for [Coral Bricks](https://www.coralbricks.ai) and [DeepInfra](https://deepinfra.com)), and serves the results through a REST API. Wera does not apply on your behalf. You review the matches and apply yourself.
 
 The dashboard lives in [wera-frontend](https://github.com/wera-jobs/Wera-Frontend), and the Chrome extension (save jobs from any page, cover letters, tailored resumes, filling applications) in [wera-extension](https://github.com/wera-jobs/wera-extension).
 
@@ -28,6 +28,8 @@ The same services also run on a home server, which is how Wera runs today: the p
   <source media="(prefers-color-scheme: dark)" srcset="docs/pipeline-dark.svg">
   <img alt="The matching funnel, to scale: 88k open jobs are fetched once for everyone, rules leave 2,900 per user, shared LLM facts and fact rules leave 1,800, a local model ranks them, and at most 100 a day get an LLM fit score at $0.0001 each" src="docs/pipeline.svg">
 </picture>
+
+The figures in the diagram are from an early snapshot, before the company list grew. The funnel's shape still holds: Wera now tracks over 500,000 open postings, and the daily limit on scores is the same.
 
 1. **Fetch** each company's board once, for everyone. Boards that support ETags answer `304 Not Modified` when nothing changed; Workday boards list only new postings, with a full sweep once a day. A shared throttle keeps requests few and spaced out.
 2. **Store** only new or changed postings (by content hash). A board that fails, for any reason, changes nothing: postings close only after a listing that succeeded.
@@ -66,11 +68,12 @@ A file covers one quarter or the fiscal year to date (up to 450,000 rows, 250 MB
 
 ## Email
 
-Email is built but off until a provider is set. With it on, Wera confirms new accounts' addresses, sends password reset links (single use, one hour, and every session ends), and can send daily digests and strong-match alerts from templates with HTML and plain-text versions. Mail is queued in the database and delivered with retries, so a slow provider never slows a request.
+Email is built but off until a provider is set. With it on, Wera confirms new accounts' addresses, sends password reset links (single use, one hour, and every session ends), welcomes each account once its address is confirmed, and sends confirmed addresses a daily or weekly digest of their best new matches after the day's first pipeline run. Strong-match alerts are not built yet. Templates have HTML and plain-text versions. Mail is queued in the database and delivered with retries, so a slow provider never slows a request.
 
 ```bash
 wera mail preview --out email-preview      # every template with sample data; open the .html files
 wera mail digest --email you@example.com    # your real digest, rendered to a file (sends nothing)
+wera mail digests                           # queue every digest that is due (the worker does this after a run)
 ```
 
 Admins can also preview each template, and send a test, from the admin app (wera-admin).
@@ -240,8 +243,8 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org) (`fea
 | `wera deep --top N [--user E]` | Longer review of a user's top matches using background mode (Coral or OpenAI Responses API) |
 | `wera bench [--user E]` | Measure scoring throughput, cache hit rate, and cost per job |
 | `wera users list\|create\|passwd\|admin\|update\|budget\|import-profile\|export-profile` | Manage accounts and profiles from the server shell |
-| `wera mail preview \| test \| digest \| send` | Preview email templates, send a test, render a digest, deliver queued mail |
-| `wera h1b import FILE.xlsx... \| match \| status` | Load the Department of Labor's H-1B disclosure files (see below), match employers to companies |
+| `wera mail preview \| test \| digest \| digests \| send` | Preview email templates, send a test, render one digest, queue every digest that is due, deliver queued mail |
+| `wera h1b import FILE.xlsx... \| match \| status` | Load the Department of Labor's H-1B disclosure files (see [H-1B data](#h-1b-data)), match employers to companies |
 | `wera version` | Print the version and commit |
 
 ## Extending
@@ -284,4 +287,4 @@ docs/                 Architecture and pipeline diagrams (Excalidraw sources in 
 
 Go 1.27, chi, pgx, PostgreSQL 16, goose, any OpenAI-compatible LLM (default Coral Bricks `deepseek-v4.1-flash-fast`; DeepInfra `deepseek-ai/DeepSeek-V4.1-Flash`), a local embedding model (Snowflake Arctic Embed M v1.5), Prometheus, Docker Compose, GitHub Actions, release-please.
 
-See `PLAN.md` for the original design.
+See `PLAN.md` for the original design. Files shared across the Wera repositories, such as the code of conduct and issue templates, live in [wera-jobs/.github](https://github.com/wera-jobs/.github).

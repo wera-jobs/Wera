@@ -23,7 +23,8 @@ type Env struct {
 	ScoringConcurrency int
 	FetchConcurrency   int
 	RunInterval        time.Duration
-	RunSchedule        *Schedule // nil: loop every RunInterval
+	RunSchedule        *Schedule      // nil: loop every RunInterval
+	RunZone            *time.Location // RUN_TIMEZONE: where a digest's day starts
 	HTTPAddr           string
 	LogFormat          string
 	UserAgent          string
@@ -68,7 +69,7 @@ func LoadEnv() (*Env, error) {
 		RunInterval:          30 * time.Minute,
 		HTTPAddr:             "127.0.0.1:8080",
 		LogFormat:            "text",
-		UserAgent:            "Wera/" + strings.TrimPrefix(buildinfo.Version, "v") + " (personal job tracker; contact: jessechumo@gmail.com)",
+		UserAgent:            "Wera/" + strings.TrimPrefix(buildinfo.Version, "v") + " (+https://www.wera-jobs.com; contact: jessechumo@gmail.com)",
 		MaxCostPerRunUSD:     1.00,
 		UserBudgetUSD:        10,
 		MaxMonthlyCostUSD:    100,
@@ -143,7 +144,7 @@ func LoadEnv() (*Env, error) {
 	} else if sched, err := ParseSchedule(os.Getenv("RUN_SCHEDULE"), loc); err != nil {
 		errs = append(errs, "RUN_SCHEDULE: "+err.Error())
 	} else {
-		e.RunSchedule = sched
+		e.RunSchedule, e.RunZone = sched, loc
 	}
 	str("HTTP_ADDR", &e.HTTPAddr)
 	str("LOG_FORMAT", &e.LogFormat)

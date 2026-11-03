@@ -97,8 +97,15 @@ func (s *Service) SendReset(ctx context.Context, email string) error {
 	return s.queue(ctx, &u.ID, u.Email, "reset", mail.Reset{Base: s.base(u.Email, u.Name), Link: s.link("/reset-password", token), ExpiresIn: "1 hour"}, nil)
 }
 
-// SendWelcome greets a new account.
-func (s *Service) SendWelcome(ctx context.Context, u *store.User, companies, industries int) error {
+// SendWelcome greets an account the first time it confirms an address.
+func (s *Service) SendWelcome(ctx context.Context, u *store.User) error {
+	if sent, err := store.EmailSent(ctx, s.Pool, u.ID, "welcome"); err != nil || sent {
+		return err
+	}
+	companies, industries, err := store.CatalogSize(ctx, s.Pool)
+	if err != nil {
+		return err
+	}
 	d := mail.Sample("welcome", s.Config.PublicURL, u.Email, u.Name).(mail.Welcome)
 	d.Companies, d.Industries = companies, industries
 	return s.queue(ctx, &u.ID, u.Email, "welcome", d, nil)
@@ -109,10 +116,10 @@ func (s *Service) SendTest(ctx context.Context, to string) error {
 	return s.queue(ctx, nil, to, "test", mail.Test{Base: s.base(to, ""), Provider: s.Config.Provider, From: s.Config.From}, nil)
 }
 
-// Digest builds a user's digest: their best scored, unapplied jobs first
-// seen since `since` (at most 8), or nil when there is nothing new.
+// Digest builds a user's digest: their best new matches since `since`
+// (at most 8), or nil when there is nothing worth sending.
 func Digest(ctx context.Context, pool *pgxpool.Pool, publicURL string, u *store.User, since time.Time, frequency string) (*mail.Digest, error) {
-	jobs, _, err := store.TodayJobs(ctx, pool, u.ID, 200)
+	jobs, err := store.NewMatches(ctx, pool, u.ID, since, 200)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +129,7 @@ func Digest(ctx context.Context, pool *pgxpool.Pool, publicURL string, u *store.
 	}
 	d.TodayURL = d.AppURL
 	for _, j := range jobs {
-		if j.FirstSeenAt.Before(since) || j.FitScore == nil {
+		if j.FitScore == nil {
 			continue
 		}
 		d.NewCount++
@@ -161,6 +168,55 @@ func (s *Service) QueueDigest(ctx context.Context, u *store.User, since time.Tim
 	}
 	unsub := map[string]string{"List-Unsubscribe": "<" + d.ManageURL + ">"}
 	return true, s.queue(ctx, &u.ID, u.Email, "digest", *d, unsub)
+}
+
+// QueueDigests queues the digest of everyone due one and returns how many
+// went in. now's location decides where a day starts. One user's failure
+// is logged and does not stop the others.
+func (s *Service) QueueDigests(ctx context.Context, now time.Time) (int, error) {
+	recipients, err := store.DigestRecipients(ctx, s.Pool)
+	if err != nil {
+		return 0, err
+	}
+	queued := 0
+	for _, r := range recipients {
+		since, due := digestWindow(r.Frequency, r.Last, now)
+		if !due {
+			continue
+		}
+		if ctx.Err() != nil {
+			return queued, ctx.Err()
+		}
+		ok, err := s.QueueDigest(ctx, r.User, since, r.Frequency)
+		if err != nil {
+			s.Log.Warn("digest failed", "user_id", r.User.ID, "err", err)
+			continue
+		}
+		if ok {
+			queued++
+		}
+	}
+	return queued, nil
+}
+
+// digestWindow reports whether a digest is due at now, and where its jobs
+// start. The calendar decides, not the hours since the last one: runs come
+// several times a day, so everyone's digest follows the day's first run.
+func digestWindow(frequency string, last *time.Time, now time.Time) (since time.Time, due bool) {
+	days := 1
+	if frequency == "weekly" {
+		days = 7
+	}
+	since = now.AddDate(0, 0, -days)
+	if last == nil {
+		return since, true
+	}
+	y, m, d := last.In(now.Location()).Date()
+	next := time.Date(y, m, d+days, 0, 0, 0, 0, now.Location())
+	if last.After(since) {
+		since = *last
+	}
+	return since, !now.Before(next)
 }
 
 // Deliver sends up to batch queued emails and returns how many went out.

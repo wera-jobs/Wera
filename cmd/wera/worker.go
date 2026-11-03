@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +12,7 @@ import (
 
 	"wera/internal/config"
 	"wera/internal/filter"
+	"wera/internal/notify"
 	"wera/internal/pipeline"
 	"wera/internal/store"
 )
@@ -90,6 +92,12 @@ func runWorker(ctx context.Context, args []string) error {
 	}
 	defer p.Pool.Close()
 
+	// Digests are queued here; the API process delivers the outbox.
+	mailer, err := notify.New(p.Pool, p.Env.Mail, p.Log)
+	if err != nil {
+		return fmt.Errorf("email: %w", err)
+	}
+
 	// Graceful shutdown: a signal cancels ctx; an in-flight run finishes
 	// its current step quickly (every HTTP call honors ctx) and the run
 	// row is closed even then.
@@ -122,10 +130,17 @@ func runWorker(ctx context.Context, args []string) error {
 			case <-time.After(time.Until(next)):
 			}
 		}
-		if _, err := p.RunOnce(ctx); err != nil {
+		ran, err := p.RunOnce(ctx)
+		if err != nil {
 			// Log and keep looping: a failed run (e.g. one flaky board)
 			// must not kill the worker.
 			p.Log.Error("pipeline run failed", "err", err)
+		} else if ran && mailer.Enabled() {
+			if n, err := mailer.QueueDigests(ctx, time.Now().In(p.Env.RunZone)); err != nil {
+				p.Log.Error("queueing digests failed", "err", err)
+			} else if n > 0 {
+				p.Log.Info("digests queued", "count", n)
+			}
 		}
 		if sched != nil {
 			continue
