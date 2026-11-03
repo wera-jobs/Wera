@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.12.0](https://github.com/wera-jobs/Wera/compare/wera-v0.11.0...wera-v0.12.0) (2026-11-03)
+
+
+### Features
+
+* **mail:** send digests of new matches after pipeline runs ([dbdfe5e](https://github.com/wera-jobs/Wera/commit/dbdfe5e58c7c485e90da286593abe691ab29c0bb))
+* **mail:** welcome accounts when they confirm their address ([2fb82b7](https://github.com/wera-jobs/Wera/commit/2fb82b7332d20a7258f089825930d7101c3250d2))
+
+
+### Bug Fixes
+
+* **fetch:** name wera-jobs.com in the User-Agent ([a2dc957](https://github.com/wera-jobs/Wera/commit/a2dc957c893d0dee6616ecd3e8935db6d31fed9b))
+* **privacy:** remove email and AI notes with the account ([76e4c3a](https://github.com/wera-jobs/Wera/commit/76e4c3af069a67c341520bc51bfd1b1856739555))
+* **rank:** spend no inactive scores on digests that cannot arrive ([96f6189](https://github.com/wera-jobs/Wera/commit/96f6189fc7518e2c88563ec48855dbad4e3de6d5))
+
+
+### Documentation
+
+* **readme:** describe Wera as the service it is today ([0499167](https://github.com/wera-jobs/Wera/commit/049916794f8ca251063000104fd73d4888a7f0eb))
+
 ## [0.11.0](https://github.com/wera-jobs/Wera/compare/wera-v0.10.0...wera-v0.11.0) (2026-11-01)
 
 
