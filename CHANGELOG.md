@@ -1,5 +1,109 @@
 # Changelog
 
+## [0.12.0](https://github.com/wera-jobs/Wera/compare/wera-v0.11.0...wera-v0.12.0) (2026-11-03)
+
+
+### Features
+
+* **mail:** send digests of new matches after pipeline runs ([dbdfe5e](https://github.com/wera-jobs/Wera/commit/dbdfe5e58c7c485e90da286593abe691ab29c0bb))
+* **mail:** welcome accounts when they confirm their address ([2fb82b7](https://github.com/wera-jobs/Wera/commit/2fb82b7332d20a7258f089825930d7101c3250d2))
+
+
+### Bug Fixes
+
+* **fetch:** name wera-jobs.com in the User-Agent ([a2dc957](https://github.com/wera-jobs/Wera/commit/a2dc957c893d0dee6616ecd3e8935db6d31fed9b))
+* **privacy:** remove email and AI notes with the account ([76e4c3a](https://github.com/wera-jobs/Wera/commit/76e4c3af069a67c341520bc51bfd1b1856739555))
+* **rank:** spend no inactive scores on digests that cannot arrive ([96f6189](https://github.com/wera-jobs/Wera/commit/96f6189fc7518e2c88563ec48855dbad4e3de6d5))
+
+
+### Documentation
+
+* **readme:** describe Wera as the service it is today ([0499167](https://github.com/wera-jobs/Wera/commit/049916794f8ca251063000104fd73d4888a7f0eb))
+
+## [0.11.0](https://github.com/wera-jobs/Wera/compare/wera-v0.10.0...wera-v0.11.0) (2026-11-01)
+
+
+### Features
+
+* **deploy:** run the public site on a named tunnel ([e7a7d5d](https://github.com/wera-jobs/Wera/commit/e7a7d5d3f0947c7d545688ae50f4dd229a2c724c))
+
+
+### Documentation
+
+* **readme:** point links at the wera-jobs org ([8253bc6](https://github.com/wera-jobs/Wera/commit/8253bc65042a8c61baaa07e9964ae2d0acf7fe87))
+
+## [0.10.0](https://github.com/jessechumo/Wera/compare/wera-v0.9.1...wera-v0.10.0) (2026-10-31)
+
+
+### Features
+
+* **rank:** learn each user's fit from the AI's own scores ([27c1aaf](https://github.com/jessechumo/Wera/commit/27c1aafee6de830acd1135c155cbb62ff99c3738))
+* **rank:** rank on what the fit score weighs ([0dc26c9](https://github.com/jessechumo/Wera/commit/0dc26c929c739fb5818e30cda3dc85bf92aa9842))
+
+
+### Bug Fixes
+
+* **companies:** follow five boards that moved and stop fetching five that are gone ([ab1e106](https://github.com/jessechumo/Wera/commit/ab1e1067c803c4608435303c891b22ccb04553a2))
+* **rank:** keep the best jobs in order when many share an estimate ([2139dda](https://github.com/jessechumo/Wera/commit/2139ddac0c62e8de9d6a04344809741e2ca247ee))
+
+
+### Documentation
+
+* **home:** keep the Wi-Fi finding to what the logs show ([8fdf138](https://github.com/jessechumo/Wera/commit/8fdf1384ceb52eab54b0d549917ebcde0b630cd2))
+* **home:** say that the server's Wi-Fi caused the long outages ([0584680](https://github.com/jessechumo/Wera/commit/0584680e62ff6f7acf3513cec74c9e50ee0acc9f))
+* **readme:** describe how ranking learns from the AI's scores ([14655e7](https://github.com/jessechumo/Wera/commit/14655e7656fa50d555454fa7c23d4ba9e9df19b8))
+
+## [0.9.1](https://github.com/jessechumo/Wera/compare/wera-v0.9.0...wera-v0.9.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **api:** never cut a character in half when shortening text ([8493c0b](https://github.com/jessechumo/Wera/commit/8493c0bf0caae86a9e30a8a1e9054548e0112ac9))
+* **autofill:** never give a confident no that the data does not state ([6b1d292](https://github.com/jessechumo/Wera/commit/6b1d2924795a44bd1fc552c6ea2515a88b8a42a9))
+* **deploy:** bring the public site back after a long network outage ([#82](https://github.com/jessechumo/Wera/issues/82)) ([7d890fa](https://github.com/jessechumo/Wera/commit/7d890fa30bf769acaae1e7209256bda0910ccab7))
+* **fetch:** save postings with text Postgres refuses ([dd32b42](https://github.com/jessechumo/Wera/commit/dd32b42eac4150f79aa636a82c21b8acaa61a688))
+* **fetch:** stop reading a company's name as a maintenance page ([29d7add](https://github.com/jessechumo/Wera/commit/29d7adde0168adb65553fd95de1dc4725d4179cf))
+* **fetch:** stop reading a job's title as a maintenance page, and say why details fail ([6c8c853](https://github.com/jessechumo/Wera/commit/6c8c8530894525072b24c1b50048f47c0bc2ec21))
+* **jobs:** keep added jobs open when their company is fetched ([58c8f45](https://github.com/jessechumo/Wera/commit/58c8f45d5ce780cb615945910771f72f5ce31603))
+* release the outage recovery, the fetch fixes and the tracker fix ([b4b2721](https://github.com/jessechumo/Wera/commit/b4b2721992d275dfa28e16276e5e76936771c5c4))
+* **resume:** count bullet suggestions against the user's AI budget ([944b7c0](https://github.com/jessechumo/Wera/commit/944b7c04d94f9dea0e64b015267f7f475126ba4b))
+* **scoring:** stop a batch when the AI provider keeps failing ([b1d5a59](https://github.com/jessechumo/Wera/commit/b1d5a59951ef048ea96eeb185f12eec71de882c0))
+* **serve:** schedule a catch-up run only after a run that happened ([bf8fe08](https://github.com/jessechumo/Wera/commit/bf8fe08e58be78661ee29e7e7d6a5f61f27c6119))
+* **tracker:** keep applications whose posting has closed ([1e10009](https://github.com/jessechumo/Wera/commit/1e1000916cc8cbee8ec6778fe69a1296aa0c3557))
+
+
+### Documentation
+
+* **contributing:** say pull requests go to dev first ([4dcb813](https://github.com/jessechumo/Wera/commit/4dcb813e72f09d88bed7101d25826771be6c0629))
+* **readme:** describe the home server, backups and what to do when things break ([ce0a097](https://github.com/jessechumo/Wera/commit/ce0a097d15faf803e443a9c83902e70b5fec958c))
+
+## [0.9.0](https://github.com/jessechumo/Wera/compare/wera-v0.8.2...wera-v0.9.0) (2026-10-31)
+
+
+### Features
+
+* **scoring:** take traps for AI tools out of what models read ([54084f0](https://github.com/jessechumo/Wera/commit/54084f0e3963545755f49f0a97c4431c39c875b1))
+* **scoring:** take traps for AI tools out of what models read ([#78](https://github.com/jessechumo/Wera/issues/78)) ([bb94da4](https://github.com/jessechumo/Wera/commit/bb94da4bed3b2ec82f4e6b7ae78f892cd44198b2))
+
+
+### Documentation
+
+* **security:** say how traps for AI tools are handled ([#79](https://github.com/jessechumo/Wera/issues/79)) ([3847eb5](https://github.com/jessechumo/Wera/commit/3847eb5b4b8d27b333a43853a6bcb06bc268dec6))
+
+## [0.8.2](https://github.com/jessechumo/Wera/compare/wera-v0.8.1...wera-v0.8.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **scoring:** score from 0-10 ratings of each part of fit, rescore old scores in place ([#75](https://github.com/jessechumo/Wera/issues/75)) ([56f3742](https://github.com/jessechumo/Wera/commit/56f3742dca772015282f3a53e89712b13384a331))
+
+## [0.8.1](https://github.com/jessechumo/Wera/compare/wera-v0.8.0...wera-v0.8.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **api:** recover panics in background tasks instead of crashing the server ([#72](https://github.com/jessechumo/Wera/issues/72)) ([a7afcdb](https://github.com/jessechumo/Wera/commit/a7afcdb0f7f78fef71e28775922f684bd74ec18e))
+
 ## [0.8.0](https://github.com/jessechumo/Wera/compare/wera-v0.7.2...wera-v0.8.0) (2026-10-22)
 
 
