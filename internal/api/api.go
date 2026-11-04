@@ -149,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/jobs", s.addJob)
 			r.Get("/jobs/{id}", s.getJob)
 			r.Put("/jobs/{id}/application", s.putApplication)
+			r.Delete("/jobs/{id}/application", s.clearApplication)
 			r.Post("/jobs/{id}/score", s.scoreJob)
 			r.Get("/jobs/{id}/cover-letter", s.getCoverLetter)
 			r.Post("/jobs/{id}/cover-letter", s.generateCoverLetter)

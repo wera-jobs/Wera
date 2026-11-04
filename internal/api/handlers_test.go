@@ -81,6 +81,27 @@ func TestPutApplicationPersists(t *testing.T) {
 	}
 }
 
+func TestClearApplicationUndoesAStatus(t *testing.T) {
+	ts, pool := testServer(t, nil)
+	id := testJobIDs[1]
+	url := fmt.Sprintf("%s/api/jobs/%d/application", ts.URL, id)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM applications WHERE job_id = $1 AND user_id = $2`, id, testUserID)
+	})
+	if code, body := do(t, client, http.MethodPut, url, `{"status":"not_interested"}`); code != 200 {
+		t.Fatalf("set: %d %s", code, body)
+	}
+	code, body := do(t, client, http.MethodDelete, url, "")
+	if code != 200 || !strings.Contains(body, `"application_status":null`) {
+		t.Fatalf("clear: %d %s", code, body)
+	}
+	var n int
+	pool.QueryRow(context.Background(), `SELECT count(*) FROM applications WHERE job_id = $1 AND user_id = $2`, id, testUserID).Scan(&n)
+	if n != 0 {
+		t.Errorf("the application row is still there")
+	}
+}
+
 func TestTrackedJobStaysWhenThePostingCloses(t *testing.T) {
 	ts, pool := testServer(t, nil)
 	ctx := context.Background()
