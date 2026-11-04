@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wera/internal/config"
@@ -152,8 +153,8 @@ type FilterOutcome struct {
 //
 // It is built for a user facing hundreds of thousands of open jobs: title
 // and location rules run first on light rows, descriptions are loaded only
-// for the jobs that pass them, and outcomes are written with one COPY plus
-// one upsert instead of a statement per job.
+// for the jobs that pass them, and outcomes are written in bulk (see
+// writeOutcomes) instead of a statement per job.
 func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, userID int64, prefs *config.Preferences) (*FilterOutcome, error) {
 	prefsJSON, err := json.Marshal(prefs)
 	if err != nil {
@@ -251,7 +252,10 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		}
 	}
 
-	copyRows := make([][]any, 0, len(outs))
+	// Outcomes for jobs the user has no row for are copied straight into
+	// user_jobs (a new user's half a million, mostly excluded); changed
+	// ones go through a staging table and an upsert.
+	var added, changed [][]any
 	for i := range outs {
 		o := &outs[i]
 		if o.result.Stage != filter.StageExcluded {
@@ -271,46 +275,77 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		if o.old != nil && o.old.same(next) {
 			continue
 		}
-		copyRows = append(copyRows, []any{o.id, next.hash, next.stage, next.cats,
-			nilIfEmpty(next.reason), nilIfEmpty(next.evidence), next.flags})
+		row := []any{userID, o.id, next.hash, next.stage, orEmpty(next.cats),
+			nilIfEmpty(next.reason), nilIfEmpty(next.evidence), orEmpty(next.flags)}
+		if o.old == nil {
+			added = append(added, row)
+		} else {
+			changed = append(changed, row)
+		}
 	}
-	if len(copyRows) == 0 {
-		return out, nil
-	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `
-		CREATE TEMP TABLE filter_in (
-		  job_id BIGINT, content_hash TEXT, stage TEXT, matched_categories TEXT[],
-		  exclude_reason TEXT, exclude_evidence TEXT, flags TEXT[]
-		) ON COMMIT DROP`); err != nil {
-		return nil, fmt.Errorf("create staging table: %w", err)
-	}
-	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"filter_in"},
-		[]string{"job_id", "content_hash", "stage", "matched_categories", "exclude_reason", "exclude_evidence", "flags"},
-		pgx.CopyFromRows(copyRows)); err != nil {
-		return nil, fmt.Errorf("copy rule outcomes: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO user_jobs (user_id, job_id, content_hash, stage, matched_categories,
-		                       exclude_reason, exclude_evidence, flags, updated_at)
-		SELECT $1, job_id, content_hash, stage, matched_categories, exclude_reason, exclude_evidence, flags, now()
-		FROM filter_in
-		ON CONFLICT (user_id, job_id) DO UPDATE
-		SET content_hash = EXCLUDED.content_hash, stage = EXCLUDED.stage,
-		    matched_categories = EXCLUDED.matched_categories,
-		    exclude_reason = EXCLUDED.exclude_reason, exclude_evidence = EXCLUDED.exclude_evidence,
-		    flags = EXCLUDED.flags, updated_at = now()`, userID); err != nil {
-		return nil, fmt.Errorf("save rule outcomes: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if err := writeOutcomes(ctx, pool, added, changed); err != nil {
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+			return nil, err
+		}
+		// Another pass added some of the rows meanwhile: upsert them all.
+		if err := writeOutcomes(ctx, pool, nil, append(added, changed...)); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
+}
+
+var outcomeColumns = []string{"user_id", "job_id", "content_hash", "stage", "matched_categories", "exclude_reason", "exclude_evidence", "flags"}
+
+// writeOutcomes stores rule outcomes in one transaction: added rows are
+// copied into user_jobs, changed rows upserted.
+func writeOutcomes(ctx context.Context, pool *pgxpool.Pool, added, changed [][]any) error {
+	if len(added) == 0 && len(changed) == 0 {
+		return nil
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if len(added) > 0 {
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"user_jobs"}, outcomeColumns, pgx.CopyFromRows(added)); err != nil {
+			return fmt.Errorf("copy new rule outcomes: %w", err)
+		}
+	}
+	if len(changed) > 0 {
+		if _, err := tx.Exec(ctx, `
+			CREATE TEMP TABLE filter_in (
+			  user_id BIGINT, job_id BIGINT, content_hash TEXT, stage TEXT, matched_categories TEXT[],
+			  exclude_reason TEXT, exclude_evidence TEXT, flags TEXT[]
+			) ON COMMIT DROP`); err != nil {
+			return fmt.Errorf("create staging table: %w", err)
+		}
+		if _, err := tx.CopyFrom(ctx, pgx.Identifier{"filter_in"}, outcomeColumns, pgx.CopyFromRows(changed)); err != nil {
+			return fmt.Errorf("copy rule outcomes: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO user_jobs (user_id, job_id, content_hash, stage, matched_categories,
+			                       exclude_reason, exclude_evidence, flags, updated_at)
+			SELECT user_id, job_id, content_hash, stage, matched_categories, exclude_reason, exclude_evidence, flags, now()
+			FROM filter_in
+			ON CONFLICT (user_id, job_id) DO UPDATE
+			SET content_hash = EXCLUDED.content_hash, stage = EXCLUDED.stage,
+			    matched_categories = EXCLUDED.matched_categories,
+			    exclude_reason = EXCLUDED.exclude_reason, exclude_evidence = EXCLUDED.exclude_evidence,
+			    flags = EXCLUDED.flags, updated_at = now()`); err != nil {
+			return fmt.Errorf("save rule outcomes: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // filterRow is the part of a user_jobs row the rule filter writes.
