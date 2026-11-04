@@ -285,7 +285,7 @@ func TestAuthFlow(t *testing.T) {
 }
 
 func TestProfileFlow(t *testing.T) {
-	ts, _ := testServer(t, nil)
+	ts, pool := testServer(t, nil)
 
 	code, body := getBody(t, ts.URL+"/api/profile/options")
 	if code != 200 || !strings.Contains(body, `"data_science"`) || !strings.Contains(body, `"aerospace"`) ||
@@ -372,6 +372,24 @@ func TestProfileFlow(t *testing.T) {
 	}
 	if matchCalls.Load() == before {
 		t.Error("saving a profile did not start matching")
+	}
+
+	// Text that differs only in spacing keeps its hash, so no job is
+	// scored again; a real edit gets a new one.
+	hash := func() string {
+		var h string
+		pool.QueryRow(context.Background(), `SELECT profile_hash FROM profiles WHERE user_id = $1`, testUserID).Scan(&h)
+		return h
+	}
+	saved := hash()
+	pool.Exec(context.Background(), `UPDATE profiles SET markdown = markdown || E'\n' WHERE user_id = $1`, testUserID)
+	code, body = put(`{"markdown":"# Candidate Profile   \nData scientist.\n","preferences":{"role_families":["data_science","data_engineering"],` +
+		`"levels":["entry","mid"],"max_years_required":5,"us_only":true}}`)
+	if code != 200 || hash() != saved {
+		t.Errorf("spacing changed the profile hash: %d %.200s", code, body)
+	}
+	if code, _ := put(`{"markdown":"# Candidate Profile\nData engineer.","preferences":{"role_families":["data_science"],"levels":["mid"]}}`); code != 200 || hash() == saved {
+		t.Errorf("an edit kept the old profile hash: %d", code)
 	}
 }
 
