@@ -321,6 +321,21 @@ func (s *Server) lookupJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"job": job})
 }
 
+// postedAt reads the posting date a page gives, keeping only a sane one:
+// not in the future and not before job boards existed.
+func postedAt(v string) *time.Time {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(v))
+	if err != nil {
+		if t, err = time.Parse("2006-01-02", strings.TrimSpace(v)); err != nil {
+			return nil
+		}
+	}
+	if t.After(time.Now().Add(24*time.Hour)) || t.Year() < 2000 {
+		return nil
+	}
+	return &t
+}
+
 // addJob is POST /api/jobs (and /api/ext/jobs): save a job from any page
 // to the user's lists and tracker, then share it with the other users it
 // suits. A URL the user already has returns their job (200).
@@ -334,6 +349,7 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 		Department  string `json:"department"`
 		Description string `json:"description"`
 		Industry    string `json:"industry"`
+		Posted      string `json:"posted"` // ISO date from the page's job data, optional
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
@@ -362,7 +378,7 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	id, created, err := store.AddManualJob(r.Context(), s.Pool, user.ID, store.ManualJob{
 		URL: in.URL, Company: in.Company, Title: in.Title, Location: in.Location, Remote: remote,
-		Department: in.Department, Description: in.Description, Industry: in.Industry,
+		Department: in.Department, Description: in.Description, Industry: in.Industry, PostedAt: postedAt(in.Posted),
 	})
 	if err != nil {
 		s.Log.Error("add job failed", "user_id", user.ID, "err", err)
