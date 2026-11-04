@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.15.0](https://github.com/wera-jobs/Wera/compare/wera-v0.14.0...wera-v0.15.0) (2026-11-04)
+
+
+### Features
+
+* **api:** take a job off the tracker ([078db86](https://github.com/wera-jobs/Wera/commit/078db866ad23e2f3477613bf21c6c4ce6b70f5c7))
+
+
+### Bug Fixes
+
+* "Applied this week" counted every application row touched in the ([0d02f19](https://github.com/wera-jobs/Wera/commit/0d02f19ceaaa439056de3325a177ddfd2d5c1b98))
+* **scoring:** write fit reasons to the user as "you" ([7fe9e08](https://github.com/wera-jobs/Wera/commit/7fe9e08fea850f9719c74108402fb892ed77e112))
+
+
+### Performance
+
+* **api:** count industries, companies and stats from live matches only ([0d02f19](https://github.com/wera-jobs/Wera/commit/0d02f19ceaaa439056de3325a177ddfd2d5c1b98))
+* **store:** index postings by company and matches by stage ([041c474](https://github.com/wera-jobs/Wera/commit/041c4743b86fa6e0601a8efa5a9f4eb9b6f45e63))
+
 ## [0.14.0](https://github.com/wera-jobs/Wera/compare/wera-v0.13.0...wera-v0.14.0) (2026-11-04)
 
 
