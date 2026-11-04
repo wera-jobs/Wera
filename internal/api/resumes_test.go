@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -338,5 +339,36 @@ func TestSuggestBullet(t *testing.T) {
 	}
 	if out.Suggestions[0] != "Cut deploy time by 50% across 12 services, with GitHub Actions" || !strings.Contains(out.Suggestions[1], "[N]") {
 		t.Errorf("cleaning or placeholders wrong: %q", out.Suggestions)
+	}
+}
+
+func TestPostingKeywords(t *testing.T) {
+	ts, _ := testServer(t, nil)
+	url := ts.URL + "/api/ext/keywords"
+	posting := `{"description": "You will run Go services on Kubernetes and move the team's data pipelines to Rust."}`
+	// No resume yet: the job's words, nothing to measure them against.
+	code, body := do(t, client, http.MethodPost, url, posting)
+	if code != 200 || !strings.Contains(body, `"coverage":null`) || !strings.Contains(strings.ToLower(body), "rust") {
+		t.Fatalf("without a resume: %d %s", code, body)
+	}
+	if code, _ := importSample(t, ts.URL, false); code != 201 {
+		t.Fatal("import failed")
+	}
+	_, body = do(t, client, http.MethodPost, url, posting)
+	var out struct {
+		Keywords []string `json:"keywords"`
+		Coverage *struct {
+			Matched, Missing []string
+			Percent          int
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil || out.Coverage == nil {
+		t.Fatalf("with a resume: %s", body)
+	}
+	if !slices.Contains(out.Coverage.Matched, "go") || !slices.Contains(out.Coverage.Matched, "kubernetes") || !slices.Contains(out.Coverage.Missing, "rust") {
+		t.Errorf("matched %v, missing %v", out.Coverage.Matched, out.Coverage.Missing)
+	}
+	if code, _ := do(t, client, http.MethodPost, url, `nonsense`); code != 400 {
+		t.Errorf("bad body: want 400, got %d", code)
 	}
 }
