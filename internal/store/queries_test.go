@@ -53,3 +53,35 @@ func TestListJobsByPostingDate(t *testing.T) {
 		t.Errorf("posted within 7 days: got %v", got)
 	}
 }
+
+// The AI scores fresh postings before months-old ones of a similar
+// estimate, but a much better old match still goes first.
+func TestScoringQueuePrefersFreshPostings(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Pool(t)
+	user := testutil.User(t, pool, false)
+	companyID, _ := testutil.Company(t, pool, "other")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Old, Good"}, testutil.Job{Title: "Fresh, Fair"}, testutil.Job{Title: "Old, Great"})
+	for i, v := range []struct {
+		days     int
+		estimate int
+	}{{200, 78}, {5, 72}, {200, 90}} {
+		pool.Exec(ctx, `UPDATE jobs SET posted_at = now() - make_interval(days => $2) WHERE id = $1`, ids[i], v.days)
+		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage, estimated_score)
+			VALUES ($1, $2, 'h', 'pending_score', $3)`, user.ID, ids[i], v.estimate); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jobs, err := store.PendingScoreJobs(ctx, pool, user.ID, "none", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(jobs))
+	for _, j := range jobs {
+		got = append(got, j.Job.Title)
+	}
+	if len(got) != 3 || got[0] != "Old, Great" || got[1] != "Fresh, Fair" || got[2] != "Old, Good" {
+		t.Errorf("queue order: %v", got)
+	}
+}
