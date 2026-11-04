@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -252,6 +253,123 @@ func TestMatchingEndToEnd(t *testing.T) {
 	}
 	if coral.fits.Load() != fitsBefore {
 		t.Error("a current score was scored again")
+	}
+}
+
+// TestAddingARoleFamilyKeepsScores checks that a preference change keeps
+// the user's scores: adding a role family queues only the jobs it lets in,
+// scored jobs keep their scores (one from an older scoring method too), the
+// new rules still rule out a scored job they forbid, and jobs whose outcome
+// did not change are not written.
+func TestAddingARoleFamilyKeepsScores(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	eng := testEngine(t)
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: "Keep our Go services healthy."},
+		testutil.Job{Title: "Platform Engineer", Location: "Remote, US", Description: "Run Kubernetes."},
+		testutil.Job{Title: "Site Reliability Engineer II", Location: "Remote, US", Description: "Own on-call."},
+		testutil.Job{Title: "Software Engineer", Location: "Remote, US", Description: "Build our Go backend."},
+		testutil.Job{Title: "Accountant", Location: "Remote, US", Description: "Close the books."},
+	)
+	keep, stale, tooMany, swe, offTopic := ids[0], ids[1], ids[2], ids[3], ids[4]
+
+	u := testutil.User(t, pool, false)
+	prefs := srePrefs
+	prefs.RoleFamilies = []string{"sre", "platform"}
+	p := testutil.Profile(t, pool, u.ID, sreProfile, prefs)
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "excluded" {
+		t.Fatalf("software engineer before the family is added: %s", stage)
+	}
+	if _, err := ScoreUser(ctx, pool, env, log, p, 0, []int64{keep, stale, tooMany}, 1, nil); err != nil {
+		t.Fatalf("score: %v", err)
+	}
+	// One score from the old scoring method, and one for a job asking 3 years.
+	if _, err := pool.Exec(ctx, `UPDATE analyses SET profile_hash = $1, fit_score = 88
+		WHERE id = (SELECT analysis_id FROM user_jobs WHERE user_id = $2 AND job_id = $3)`, p.ProfileHash, u.ID, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE analyses SET years_required = 3
+		WHERE id = (SELECT analysis_id FROM user_jobs WHERE user_id = $1 AND job_id = $2)`, u.ID, tooMany); err != nil {
+		t.Fatal(err)
+	}
+	written := func(id int64) time.Time {
+		t.Helper()
+		var at time.Time
+		if err := pool.QueryRow(ctx, `SELECT updated_at FROM user_jobs WHERE user_id = $1 AND job_id = $2`, u.ID, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+	before := written(offTopic)
+
+	// Add software engineering and accept at most 2 years.
+	prefs.RoleFamilies = []string{"sre", "platform", "software_engineering"}
+	prefs.MaxYearsRequired = 2
+	p = testutil.Profile(t, pool, u.ID, sreProfile, prefs)
+	calls := coral.fits.Load()
+	// The rule pass alone leaves scored jobs scored: none waits for a later
+	// step (one a request deadline can cut short) to get its score back.
+	out, err := store.FilterForUser(ctx, pool, eng, u.ID, &p.Preferences)
+	if err != nil || !out.Refiltered {
+		t.Fatalf("rule pass: %+v, %v", out, err)
+	}
+	for _, id := range []int64{keep, stale} {
+		if stage, _ := stageOf(t, pool, u.ID, id); stage != "scored" {
+			t.Errorf("job %d left the scored list during the rule pass: %s", id, stage)
+		}
+	}
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatalf("refilter: %v", err)
+	}
+	if coral.fits.Load() != calls {
+		t.Error("a preference change must not score anything again")
+	}
+	if fit := todayScore(t, pool, u.ID, keep); fit != 75 {
+		t.Errorf("scored job after adding a family shows %d, want 75", fit)
+	}
+	if fit := todayScore(t, pool, u.ID, stale); fit != 88 {
+		t.Errorf("job scored by the old method shows %d, want its old 88 until rescored", fit)
+	}
+	if stage, reason := stageOf(t, pool, u.ID, tooMany); stage != "excluded" || !strings.Contains(reason, "years") {
+		t.Errorf("scored job asking more years than now accepted: %s/%s", stage, reason)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "pending_score" {
+		t.Errorf("job the new family lets in: %s, want pending_score", stage)
+	}
+	if !written(offTopic).Equal(before) {
+		t.Error("a job whose outcome did not change was written again")
+	}
+
+	// The next pass knows the jobs were filtered with these preferences.
+	keptAt := written(keep)
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !written(keep).Equal(keptAt) {
+		t.Error("an unchanged profile filtered every job again")
+	}
+
+	// A job lost to an interrupted refilter, back in the queue with only an
+	// old-method score, gets that score back at the next pass.
+	if _, err := pool.Exec(ctx, `UPDATE user_jobs SET stage = 'pending_score' WHERE user_id = $1 AND job_id = $2`, u.ID, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if fit := todayScore(t, pool, u.ID, stale); fit != 88 {
+		t.Errorf("queued job with an old-method score shows %d, want 88", fit)
 	}
 }
 

@@ -121,12 +121,12 @@ func runRefilter(ctx context.Context, args []string) error {
 	for _, prof := range profiles {
 		st, err := pipeline.FilterUser(ctx, pool, eng, pipeline.NewEmbedder(env, log), prof, nil)
 		if err != nil {
-			return fmt.Errorf("requeued %d jobs but refiltering failed: %w", n, err)
+			return fmt.Errorf("marked %d users but refiltering failed: %w", n, err)
 		}
 		excluded += st.Excluded
 		pending += st.Pending
 	}
-	log.Info("refiltered all open jobs", "requeued", n, "users", len(profiles),
+	log.Info("refiltered all open jobs", "marked", n, "users", len(profiles),
 		"excluded", excluded, "pending_score", pending)
 	return nil
 }

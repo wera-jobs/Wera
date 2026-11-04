@@ -27,37 +27,72 @@ type FilterStats struct {
 // open job they have no current outcome for, then ranks what is left (emb
 // may be nil: TF-IDF ranking only).
 func FilterUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, emb *Embedder, prof *store.Profile, m *metrics.Registry) (*FilterStats, error) {
-	excluded, pending, byReason, err := store.FilterForUser(ctx, pool, eng, prof.UserID, &prof.Preferences)
+	out, err := store.FilterForUser(ctx, pool, eng, prof.UserID, &prof.Preferences)
 	if err != nil {
 		return nil, fmt.Errorf("filter for user %d: %w", prof.UserID, err)
 	}
 	if m != nil {
-		for reason, n := range byReason {
+		for reason, n := range out.ByReason {
 			m.JobsExcluded.WithLabelValues(reason).Add(float64(n))
 		}
 	}
+	rules := ExclusionsFor(&prof.Preferences)
+	byScore := 0
+	if out.Refiltered {
+		// Scored jobs kept their scores; the new preferences may rule some out.
+		if byScore, err = recheckScored(ctx, pool, prof.UserID, rules); err != nil {
+			return nil, err
+		}
+	}
 	// Jobs this exact profile text was already scored for (before a
-	// refilter or a profile save that kept the text) get their score back
-	// now, for free, so lists never show them as unscored.
-	pendingCached, err := store.PendingWithCachedAnalysis(ctx, pool, prof.UserID, scoring.ScoreKey(prof.ProfileHash))
+	// refilter, a profile save that kept the text, or under an older
+	// scoring method) get their score back now, for free, so lists never
+	// show them as unscored.
+	pendingCached, err := store.PendingWithCachedAnalysis(ctx, pool, prof.UserID, scoring.ScoreKeys(prof.ProfileHash))
 	if err != nil {
 		return nil, err
 	}
-	rules := ExclusionsFor(&prof.Preferences)
 	for _, pj := range pendingCached {
 		if err := linkCached(ctx, pool, prof.UserID, pj, rules); err != nil {
 			return nil, err
 		}
 	}
-	pending -= len(pendingCached)
 	byFacts, err := excludeByKnownFacts(ctx, pool, prof)
 	if err != nil {
 		return nil, err
 	}
+	if out.Refiltered {
+		if err := store.MarkFiltered(ctx, pool, prof.UserID, &prof.Preferences); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := RankPending(ctx, pool, emb, prof); err != nil {
 		return nil, err
 	}
-	return &FilterStats{Excluded: excluded + byFacts, Pending: pending - byFacts}, nil
+	return &FilterStats{Excluded: out.Excluded + byScore + byFacts, Pending: max(0, out.Pending-len(pendingCached)-byFacts)}, nil
+}
+
+// recheckScored applies the post-scoring rules to the user's scored jobs
+// and excludes the ones they now rule out (fewer years accepted, say). It
+// returns how many it excluded.
+func recheckScored(ctx context.Context, pool *pgxpool.Pool, userID int64, rules scoring.Exclusions) (int, error) {
+	scored, err := store.ScoredWithAnalysis(ctx, pool, userID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, pj := range scored {
+		if pj.Cached.Analysis == nil {
+			continue
+		}
+		if reason, evidence := scoring.PostLLMExclusion(pj.Cached.Analysis, rules); reason != "" {
+			if err := store.ExcludeUserJob(ctx, pool, userID, pj.Job.ID, reason, evidence); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
 }
 
 // excludeByKnownFacts applies the user's rules to unscored matches whose
