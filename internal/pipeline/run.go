@@ -87,6 +87,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) (ran bool, err error) {
 	var sstats *ScoreStats
 	var scoreErr error
 	if fetchErr == nil {
+		p.closeUnreadBoards(ctx, fstats)
 		p.embedBackfill(ctx)
 		excluded, sstats, scoreErr = p.matchAll(ctx)
 	}
@@ -295,6 +296,27 @@ func (p *Pipeline) embedBackfill(ctx context.Context) {
 		p.Log.Warn("embedding postings failed", "embedded", n, "err", err)
 	} else if n > 0 {
 		p.Log.Info("embedded postings", "jobs", n)
+	}
+}
+
+// unreadAfter is how long a board can go without a successful read before
+// its postings are closed. It spans a long weekend between weekday-only
+// runs and a few days of the worker being down, with room to spare.
+const unreadAfter = 7 * 24 * time.Hour
+
+// closeUnreadBoards closes the postings of boards not read for unreadAfter,
+// after this run's fetch, so every board that answered is current. A run
+// where most boards failed says more about this machine's network than
+// about the boards, so it closes nothing.
+func (p *Pipeline) closeUnreadBoards(ctx context.Context, f *FetchStats) {
+	if f == nil || f.CompaniesOK <= f.CompaniesFailed {
+		return
+	}
+	boards, jobs, err := store.CloseUnreadBoards(ctx, p.Pool, time.Now().Add(-unreadAfter))
+	if err != nil {
+		p.Log.Error("closing postings of unread boards failed", "err", err)
+	} else if jobs > 0 {
+		p.Log.Info("closed postings of boards unread for a week", "boards", boards, "jobs", jobs)
 	}
 }
 
