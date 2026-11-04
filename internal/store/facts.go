@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wera/internal/scoring"
@@ -58,11 +59,26 @@ func SaveFacts(ctx context.Context, pool *pgxpool.Pool, r scoring.FactsResult, m
 	return nil
 }
 
-// ExcludeUserJob marks one of a user's jobs excluded without an analysis
-// (a rule applied to the job's shared facts).
-func ExcludeUserJob(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64, reason, evidence string) error {
-	_, err := pool.Exec(ctx, `
-		UPDATE user_jobs SET stage = 'excluded', exclude_reason = $3, exclude_evidence = $4, updated_at = now()
-		WHERE user_id = $1 AND job_id = $2`, userID, jobID, reason, nilIfEmpty(evidence))
-	return err
+// Exclusion is one job a rule on its shared facts rules out.
+type Exclusion struct {
+	JobID            int64
+	Reason, Evidence string
+}
+
+// ExcludeUserJobs marks many of a user's jobs excluded without an
+// analysis, in one round trip.
+func ExcludeUserJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, ex []Exclusion) error {
+	if len(ex) == 0 {
+		return nil
+	}
+	b := &pgx.Batch{}
+	for _, e := range ex {
+		b.Queue(`
+			UPDATE user_jobs SET stage = 'excluded', exclude_reason = $3, exclude_evidence = $4, updated_at = now()
+			WHERE user_id = $1 AND job_id = $2`, userID, e.JobID, e.Reason, nilIfEmpty(e.Evidence))
+	}
+	if err := pool.SendBatch(ctx, b).Close(); err != nil {
+		return fmt.Errorf("exclude jobs: %w", err)
+	}
+	return nil
 }

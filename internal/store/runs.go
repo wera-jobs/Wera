@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,6 +56,22 @@ func TryUserLock(ctx context.Context, pool *pgxpool.Pool, userID int64) (acquire
 		defer conn.Release()
 		_, _ = conn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1, $2)", userLockClass, int32(userID))
 	}, nil
+}
+
+// WaitUserLock waits for the per-user matching lock (see TryUserLock)
+// until it is free or ctx ends.
+func WaitUserLock(ctx context.Context, pool *pgxpool.Pool, userID int64) (release func(context.Context), err error) {
+	for {
+		got, release, err := TryUserLock(ctx, pool, userID)
+		if err != nil || got {
+			return release, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // userLockClass is the first key of the per-user advisory locks.

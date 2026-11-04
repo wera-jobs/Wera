@@ -80,16 +80,27 @@ func (s *Server) clearApplication(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	jobs, pending, err := store.TodayJobs(r.Context(), s.Pool, currentUser(r).ID, limit)
+	userID := currentUser(r).ID
+	jobs, pending, err := store.TodayJobs(r.Context(), s.Pool, userID, limit)
 	if err != nil {
 		s.Log.Error("today failed", "err", err)
 		s.writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	// pending: jobs waiting for a full score; ungraded: of those, the ones
+	// the AI has not graded yet either.
+	ungraded := 0
+	if pending > 0 {
+		if ungraded, err = store.Ungraded(r.Context(), s.Pool, userID); err != nil {
+			s.Log.Error("today failed", "err", err)
+			s.writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+	}
 	if jobs == nil {
 		jobs = []store.JobView{}
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "count": len(jobs), "pending": pending})
+	s.writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "count": len(jobs), "pending": pending, "ungraded": ungraded})
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
