@@ -155,7 +155,7 @@ Return ONLY a JSON object, no prose, no markdown fences:
 {"ratings": {"role": 0-10, "seniority": 0-10, "skills": 0-10, "domain": 0-10, "location": 0-10, "blocker": true|false}, "reason": string}
 
 Judge fit for THIS candidate from their profile, including their target roles, level, skills, locations and any scoring guidance in it. ` + rubricText + `
-reason: one sentence of at most 25 words, specific to this candidate: the main reason it fits or does not.`
+reason: one sentence of at most 25 words, specific to this candidate: the main reason it fits or does not. The candidate reads it, so write to them as "you" and "your" ("matches your Python and Airflow work"); never "the candidate", "he", "she" or "they".`
 
 // BuildFitMessages builds the compact per-user fit messages: fixed system
 // prompt, the profile (both cached), then the job card.
