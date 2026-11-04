@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.1](https://github.com/wera-jobs/Wera/compare/wera-v0.15.0...wera-v0.15.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **api:** keep the profile hash when only spacing changes ([63ca4c1](https://github.com/wera-jobs/Wera/commit/63ca4c10911691b0add7552e8b327b391734e3c5))
+* **pipeline:** keep scores when preferences change ([4f6a838](https://github.com/wera-jobs/Wera/commit/4f6a838fc5aed36094d03be5e2063e0a8520860c))
+
 ## [0.15.0](https://github.com/wera-jobs/Wera/compare/wera-v0.14.0...wera-v0.15.0) (2026-11-04)
 
 
