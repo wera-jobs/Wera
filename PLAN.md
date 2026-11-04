@@ -542,7 +542,7 @@ All JSON. Default list filters hide `stage IN ('excluded','score_failed')` and `
 |---|---|---|
 | GET | `/healthz` | `200 ok` if DB reachable |
 | GET | `/metrics` | Prometheus |
-| GET | `/api/jobs` | List. Query: `group`, `category`, `min_score`, `sponsorship` (yes/unknown), `work_mode`, `status`, `q` (title/company search), `since`, `include_excluded`, `sort` (`score`/`newest`), `limit`, `offset` |
+| GET | `/api/jobs` | List. Query: `group`, `category`, `min_score`, `sponsorship` (yes/unknown), `work_mode`, `status`, `q` (title/company search), `since`, `posted_within` (days since the posting went up), `include_excluded`, `sort` (`score`/`newest`, newest by posting date), `limit`, `offset` |
 | GET | `/api/jobs/{id}` | Job + latest `score` analysis + `deep` analysis if any + application |
 | PUT | `/api/jobs/{id}/application` | Body `{status, notes}`. Sets `applied_at` when status first becomes `applied` |
 | GET | `/api/today` | Review queue: scored, open jobs with no application status yet (or only saved), sorted by `fit_score` desc |

@@ -310,6 +310,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	postedWithin, _ := strconv.Atoi(q.Get("posted_within"))
 
 	jobs, err := store.ListJobs(r.Context(), s.Pool, currentUser(r).ID, store.JobQuery{
 		Industry:        q.Get("industry"),
@@ -320,6 +321,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		Status:          q.Get("status"),
 		Q:               q.Get("q"),
 		Since:           since,
+		PostedWithin:    max(0, postedWithin),
 		IncludeExcluded: q.Get("include_excluded") == "true",
 		Sort:            q.Get("sort"),
 		Limit:           limit,
