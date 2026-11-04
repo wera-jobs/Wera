@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"wera/internal/config"
 	"wera/internal/resume"
+	"wera/internal/scoring"
 	"wera/internal/store"
 )
 
@@ -123,6 +125,20 @@ func TestTailorResumeForAJob(t *testing.T) {
 	if code, _ := importSample(t, ts.URL, false); code != 201 {
 		t.Fatal("import failed")
 	}
+	// The job has a score: the tailored resume reports it, and what it becomes.
+	ctx, pool := context.Background(), testPool(t)
+	if err := store.SaveProfile(ctx, pool, testUserID, "Backend engineer who writes Go.", "tailor-test", config.Preferences{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveFacts(ctx, pool, scoring.FactsResult{JobID: testJobIDs[0], Facts: &scoring.Facts{SkillsRequired: []string{"Go", "Kubernetes", "Terraform", "Kafka"}}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	ratings := `{"ratings": {"role": 9, "seniority": 8, "skills": 6, "domain": 7, "location": 10, "blocker": false}, "reason": "close"}`
+	if err := store.SaveAnalysis(ctx, pool, testUserID, testJobIDs[0], "test", "tailor-test", scoring.Outcome{
+		JobID: testJobIDs[0], Stage: scoring.StageScored, Raw: ratings, Analysis: &scoring.Analysis{FitScore: 70, Verdict: "good"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	jobURL := fmt.Sprintf("%s/api/jobs/%d/resume", ts.URL, testJobIDs[0])
 	code, body := do(t, client, http.MethodPost, jobURL, "")
 	if code != 200 {
@@ -140,7 +156,8 @@ func TestTailorResumeForAJob(t *testing.T) {
 					} `json:"entries"`
 				} `json:"sections"`
 			} `json:"data"`
-			Coverage *struct{ Percent int } `json:"coverage"`
+			Coverage *struct{ Percent int }       `json:"coverage"`
+			Fit      *struct{ Before, After int } `json:"fit_score"`
 		} `json:"resume"`
 	}
 	json.Unmarshal([]byte(body), &out)
@@ -148,6 +165,10 @@ func TestTailorResumeForAJob(t *testing.T) {
 	bullets := r.Data.Sections[2].Entries[0].Bullets
 	if r.JobID == nil || *r.JobID != testJobIDs[0] || r.Coverage == nil {
 		t.Fatalf("tailored copy: %+v", r)
+	}
+	// The tailored bullets show Kubernetes, which the profile did not.
+	if r.Fit == nil || r.Fit.Before != 70 || r.Fit.After <= r.Fit.Before {
+		t.Errorf("fit score before and after tailoring: %+v", r.Fit)
 	}
 	if bullets[0].Text != "Cut deploy time by 50% with GitHub Actions pipelines across 12 services." {
 		t.Errorf("a rewrite inventing a number was applied: %q", bullets[0].Text)
