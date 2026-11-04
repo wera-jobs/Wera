@@ -100,6 +100,68 @@ func TestFetchConditionalBoard(t *testing.T) {
 	}
 }
 
+func TestUnreadBoardsCloseAndReopen(t *testing.T) {
+	board := &etagBoard{}
+	f := newFetcher(t, map[string]sources.Source{"fakeboard": board})
+	ctx := context.Background()
+	_, name := testutil.Company(t, f.Pool, "ai_ml")
+	freshID, fresh := testutil.Company(t, f.Pool, "ai_ml")
+	testutil.Jobs(t, f.Pool, freshID, testutil.Job{Title: "Data Engineer"}, testutil.Job{Title: "ML Engineer"})
+	f.Pool.Exec(ctx, `UPDATE companies SET last_ok_at = now() WHERE id = $1`, freshID)
+	cos := []config.Company{{Name: name, ATS: "fakeboard", Token: name, Industry: "ai_ml"}}
+	board.set("v1", raw("a", "Site Reliability Engineer"), raw("b", "Platform Engineer"))
+	if _, err := f.Run(ctx, cos, ""); err != nil {
+		t.Fatal(err)
+	}
+	open := func(company string) (n int) {
+		f.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs j JOIN companies c ON c.id = j.company_id
+			WHERE c.name = $1 AND j.closed_at IS NULL`, company).Scan(&n)
+		return n
+	}
+
+	// One board has not been read for eight days; the other was just read.
+	f.Pool.Exec(ctx, `UPDATE companies SET last_ok_at = now() - interval '8 days' WHERE name = $1`, name)
+	boards, jobs, err := store.CloseUnreadBoards(ctx, f.Pool, time.Now().Add(-7*24*time.Hour))
+	if err != nil || boards != 1 || jobs != 2 {
+		t.Fatalf("closed %d boards and %d jobs, %v; want 1 and 2", boards, jobs, err)
+	}
+	if open(name) != 0 || open(fresh) != 2 {
+		t.Errorf("open after closing: unread %d, fresh %d", open(name), open(fresh))
+	}
+
+	// The board answers again, unchanged: its postings reopen all the same.
+	st, err := f.Run(ctx, cos, name)
+	if err != nil || st.CompaniesUnchanged != 0 {
+		t.Fatalf("read again: %+v %v", st, err)
+	}
+	if open(name) != 2 {
+		t.Errorf("postings did not reopen: %d open", open(name))
+	}
+	if boards, _, _ := store.CloseUnreadBoards(ctx, f.Pool, time.Now().Add(-7*24*time.Hour)); boards != 0 {
+		t.Errorf("a board read just now was closed")
+	}
+}
+
+func TestUnreadBoardsWaitForAHealthyRun(t *testing.T) {
+	f := newFetcher(t, nil)
+	ctx := context.Background()
+	id, name := testutil.Company(t, f.Pool, "ai_ml")
+	testutil.Jobs(t, f.Pool, id, testutil.Job{Title: "Platform Engineer"})
+	f.Pool.Exec(ctx, `UPDATE companies SET last_ok_at = now() - interval '30 days' WHERE name = $1`, name)
+	p := &Pipeline{Pool: f.Pool, Log: f.Log}
+	p.closeUnreadBoards(ctx, &FetchStats{CompaniesOK: 3, CompaniesFailed: 3})
+	var n int
+	f.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE company_id = $1 AND closed_at IS NULL`, id).Scan(&n)
+	if n != 1 {
+		t.Fatalf("a run where half the boards failed closed postings")
+	}
+	p.closeUnreadBoards(ctx, &FetchStats{CompaniesOK: 4, CompaniesFailed: 3})
+	f.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE company_id = $1 AND closed_at IS NULL`, id).Scan(&n)
+	if n != 0 {
+		t.Errorf("a healthy run left %d postings of a board unread for 30 days open", n)
+	}
+}
+
 // failingBoard fails every fetch with err.
 type failingBoard struct{ err error }
 
