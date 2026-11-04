@@ -143,7 +143,14 @@ func LoadEnv() (*Env, error) {
 		errs = append(errs, fmt.Sprintf("RUN_TIMEZONE: unknown time zone %q", tzName))
 	} else if sched, err := ParseSchedule(os.Getenv("RUN_SCHEDULE"), loc); err != nil {
 		errs = append(errs, "RUN_SCHEDULE: "+err.Error())
+	} else if days, err := ParseDays(os.Getenv("RUN_DAYS")); err != nil {
+		errs = append(errs, "RUN_DAYS: "+err.Error())
+	} else if days != nil && sched == nil {
+		errs = append(errs, "RUN_DAYS needs RUN_SCHEDULE (an interval runs every day)")
 	} else {
+		if sched != nil {
+			sched.Days = days
+		}
 		e.RunSchedule, e.RunZone = sched, loc
 	}
 	str("HTTP_ADDR", &e.HTTPAddr)
