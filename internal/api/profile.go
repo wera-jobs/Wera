@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"wera/internal/config"
 	"wera/internal/normalize"
@@ -216,16 +217,28 @@ func (s *Server) putProfile(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	prev, err := store.GetProfile(r.Context(), s.Pool, user.ID)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	answers, _ := json.Marshal(in.Answers)
 	hash := scoring.ProfileHash([]byte(in.Markdown))
+	// Text that differs only in spacing reads the same to the AI: it keeps
+	// its hash, so saving it does not score every job again. (Profiles
+	// stored before saves were trimmed end in a newline.)
+	if prev != nil && prev.ProfileHash != "" && sameText(prev.Markdown, in.Markdown) {
+		hash = prev.ProfileHash
+	}
 	if err := store.SaveProfile(r.Context(), s.Pool, user.ID, in.Markdown, hash, in.Preferences, answers); err != nil {
 		s.Log.Error("save profile failed", "err", err)
 		s.writeError(w, http.StatusInternalServerError, "could not save the profile")
 		return
 	}
-	// Filter and rank now (seconds, no LLM) so Today is populated when
-	// this request returns; AI scoring then streams in the background.
-	if s.PrepareUser != nil {
+	// A first profile waits for its matches (seconds, no LLM), so Today is
+	// populated when this request returns. Later saves keep the matches and
+	// scores the user has, so the rematch runs in the background.
+	if s.PrepareUser != nil && (prev == nil || !prev.Ready()) {
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		if err := s.PrepareUser(ctx, user.ID); err != nil {
 			s.Log.Warn("preparing matches failed; the background match will retry", "user_id", user.ID, "err", err)
@@ -237,6 +250,19 @@ func (s *Server) putProfile(w http.ResponseWriter, r *http.Request) {
 		s.background("match user", func() { s.MatchUser(context.Background(), user.ID) })
 	}
 	s.getProfile(w, r)
+}
+
+// sameText reports whether two profile texts differ only in spacing at
+// the ends of lines and of the text.
+func sameText(a, b string) bool {
+	norm := func(s string) string {
+		lines := strings.Split(strings.TrimSpace(s), "\n")
+		for i, l := range lines {
+			lines[i] = strings.TrimRightFunc(l, unicode.IsSpace)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return norm(a) == norm(b)
 }
 
 // chatForUser makes one AI chat call on behalf of a user and records

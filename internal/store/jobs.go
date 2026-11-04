@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"wera/internal/config"
 	"wera/internal/filter"
+	"wera/internal/scoring"
 )
 
 // JobInput is one normalized job ready to be upserted.
@@ -126,48 +129,85 @@ func CloseMissingJobs(ctx context.Context, pool *pgxpool.Pool, companyID int64, 
 	return tag.RowsAffected(), nil
 }
 
+// FilterOutcome is what one rule-filter pass did.
+type FilterOutcome struct {
+	Excluded, Pending int            // excluded now, and waiting to be scored
+	ByReason          map[string]int // excluded jobs per reason, for metrics
+	// Refiltered is set when the user's preferences had changed since the
+	// last pass, so every open job was filtered again. The caller re-applies
+	// the post-scoring rules to scored jobs, then calls MarkFiltered.
+	Refiltered bool
+}
+
 // FilterForUser runs the rule engine over every open job the user has no
-// current outcome for (new jobs, jobs whose content changed, and all jobs
-// after a preference change) and upserts the outcomes into user_jobs. It
-// returns the excluded and pending counts plus a per-reason breakdown (for
-// metrics). A job that passes keeps its previous score link, so the user
-// still sees the old score until the job is rescored.
+// current outcome for (new jobs and jobs whose content changed), or over
+// every open job when the preferences changed since the last pass, and
+// stores the outcomes in user_jobs. Only outcomes that changed are written:
+// a new role family touches the jobs it lets in, not every job.
 //
-// It is built for a new user facing tens of thousands of open jobs: title
+// A scored job that still passes keeps its score, so a preference change
+// never sends the user's scored matches back to the queue. A job that
+// changed content, or that passes now after being excluded, goes to the
+// queue, where an analysis it already has is linked again for free.
+//
+// It is built for a user facing hundreds of thousands of open jobs: title
 // and location rules run first on light rows, descriptions are loaded only
 // for the jobs that pass them, and outcomes are written with one COPY plus
 // one upsert instead of a statement per job.
-func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, userID int64, prefs *config.Preferences) (excluded, pending int, byReason map[string]int, err error) {
+func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, userID int64, prefs *config.Preferences) (*FilterOutcome, error) {
+	prefsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return nil, err
+	}
+	var all bool
+	if err := pool.QueryRow(ctx, `
+		SELECT filtered_preferences IS DISTINCT FROM $2::jsonb FROM profiles WHERE user_id = $1`,
+		userID, prefsJSON).Scan(&all); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("compare preferences: %w", err)
+	}
 	rows, err := pool.Query(ctx, `
-		SELECT j.id, j.content_hash, j.title, COALESCE(j.location_raw, '')
+		SELECT j.id, j.content_hash, j.title, COALESCE(j.location_raw, ''),
+		       uj.job_id IS NOT NULL, COALESCE(uj.stage, ''), COALESCE(uj.content_hash, ''),
+		       uj.matched_categories, uj.exclude_reason, uj.exclude_evidence, uj.flags
 		FROM jobs j
 		LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = $1
 		WHERE j.closed_at IS NULL
-		  AND (uj.job_id IS NULL OR (uj.content_hash <> j.content_hash AND j.added_by IS DISTINCT FROM $1))`, userID)
+		  AND (uj.job_id IS NULL
+		       OR (($2 OR uj.content_hash <> j.content_hash) AND j.added_by IS DISTINCT FROM $1))`, userID, all)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("load jobs to filter: %w", err)
+		return nil, fmt.Errorf("load jobs to filter: %w", err)
 	}
 	type outcome struct {
 		id         int64
 		hash       string
 		title, loc string
 		result     filter.Result
+		old        *filterRow
 	}
 	var outs []outcome
 	for rows.Next() {
 		var o outcome
-		if err := rows.Scan(&o.id, &o.hash, &o.title, &o.loc); err != nil {
+		var had bool
+		var old filterRow
+		var reason, evidence *string
+		if err := rows.Scan(&o.id, &o.hash, &o.title, &o.loc,
+			&had, &old.stage, &old.hash, &old.cats, &reason, &evidence, &old.flags); err != nil {
 			rows.Close()
-			return 0, 0, nil, err
+			return nil, err
+		}
+		if had {
+			old.reason, old.evidence = deref(reason), deref(evidence)
+			o.old = &old
 		}
 		outs = append(outs, o)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, 0, nil, err
+		return nil, err
 	}
+	out := &FilterOutcome{ByReason: map[string]int{}, Refiltered: all}
 	if len(outs) == 0 {
-		return 0, 0, map[string]int{}, nil
+		return out, nil
 	}
 	// Title and location rules on every core (the engine is read-only).
 	workers := runtime.GOMAXPROCS(0)
@@ -194,45 +234,53 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 	if len(survivors) > 0 {
 		drows, err := pool.Query(ctx, `SELECT id, COALESCE(description, '') FROM jobs WHERE id = ANY($1::bigint[])`, survivors)
 		if err != nil {
-			return 0, 0, nil, fmt.Errorf("load descriptions: %w", err)
+			return nil, fmt.Errorf("load descriptions: %w", err)
 		}
 		for drows.Next() {
 			var id int64
 			var d string
 			if err := drows.Scan(&id, &d); err != nil {
 				drows.Close()
-				return 0, 0, nil, err
+				return nil, err
 			}
 			descs[id] = d
 		}
 		drows.Close()
 		if err := drows.Err(); err != nil {
-			return 0, 0, nil, err
+			return nil, err
 		}
 	}
 
-	byReason = map[string]int{}
 	copyRows := make([][]any, 0, len(outs))
 	for i := range outs {
 		o := &outs[i]
 		if o.result.Stage != filter.StageExcluded {
 			o.result = eng.ApplyDescription(prefs, o.result, descs[o.id])
 		}
-		var reason, evidence any
+		next := filterRow{stage: o.result.Stage, hash: o.hash, cats: o.result.Categories, flags: o.result.Flags}
 		if o.result.Stage == filter.StageExcluded {
-			excluded++
-			byReason[o.result.Reason]++
-			reason, evidence = o.result.Reason, o.result.Evidence
-		} else {
-			pending++
+			out.Excluded++
+			out.ByReason[o.result.Reason]++
+			next.reason, next.evidence = o.result.Reason, o.result.Evidence
+		} else if keepsStage(o.old, o.hash) {
+			next.stage, next.reason, next.evidence = o.old.stage, o.old.reason, o.old.evidence
 		}
-		copyRows = append(copyRows, []any{o.id, o.hash, o.result.Stage, o.result.Categories,
-			reason, evidence, o.result.Flags})
+		if next.stage == filter.StagePendingScore {
+			out.Pending++
+		}
+		if o.old != nil && o.old.same(next) {
+			continue
+		}
+		copyRows = append(copyRows, []any{o.id, next.hash, next.stage, next.cats,
+			nilIfEmpty(next.reason), nilIfEmpty(next.evidence), next.flags})
+	}
+	if len(copyRows) == 0 {
+		return out, nil
 	}
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return 0, 0, nil, err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `
@@ -240,12 +288,12 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		  job_id BIGINT, content_hash TEXT, stage TEXT, matched_categories TEXT[],
 		  exclude_reason TEXT, exclude_evidence TEXT, flags TEXT[]
 		) ON COMMIT DROP`); err != nil {
-		return 0, 0, nil, fmt.Errorf("create staging table: %w", err)
+		return nil, fmt.Errorf("create staging table: %w", err)
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"filter_in"},
 		[]string{"job_id", "content_hash", "stage", "matched_categories", "exclude_reason", "exclude_evidence", "flags"},
 		pgx.CopyFromRows(copyRows)); err != nil {
-		return 0, 0, nil, fmt.Errorf("copy rule outcomes: %w", err)
+		return nil, fmt.Errorf("copy rule outcomes: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO user_jobs (user_id, job_id, content_hash, stage, matched_categories,
@@ -257,12 +305,50 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		    matched_categories = EXCLUDED.matched_categories,
 		    exclude_reason = EXCLUDED.exclude_reason, exclude_evidence = EXCLUDED.exclude_evidence,
 		    flags = EXCLUDED.flags, updated_at = now()`, userID); err != nil {
-		return 0, 0, nil, fmt.Errorf("save rule outcomes: %w", err)
+		return nil, fmt.Errorf("save rule outcomes: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, 0, nil, err
+		return nil, err
 	}
-	return excluded, pending, byReason, nil
+	return out, nil
+}
+
+// filterRow is the part of a user_jobs row the rule filter writes.
+type filterRow struct {
+	stage, hash      string
+	cats, flags      []string
+	reason, evidence string
+}
+
+func (r *filterRow) same(o filterRow) bool {
+	return r.stage == o.stage && r.hash == o.hash && r.reason == o.reason && r.evidence == o.evidence &&
+		slices.Equal(r.cats, o.cats) && slices.Equal(r.flags, o.flags)
+}
+
+// keepsStage reports whether a job that passes the rules keeps the stage it
+// has: a score (or failed score) for the same content, or a place in the
+// queue. Anything excluded before goes back to the queue, where the
+// post-scoring rules decide again.
+func keepsStage(old *filterRow, hash string) bool {
+	if old == nil || old.hash != hash {
+		return false
+	}
+	switch old.stage {
+	case scoring.StageScored, scoring.StageFailed, filter.StagePendingScore:
+		return true
+	}
+	return false
+}
+
+// MarkFiltered records the preferences the user's jobs were filtered with,
+// once a pass that re-filtered them all has finished.
+func MarkFiltered(ctx context.Context, pool *pgxpool.Pool, userID int64, prefs *config.Preferences) error {
+	prefsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `UPDATE profiles SET filtered_preferences = $2::jsonb WHERE user_id = $1`, userID, prefsJSON)
+	return err
 }
 
 // KnownExtIDs returns the ext_ids already stored for a company (open or

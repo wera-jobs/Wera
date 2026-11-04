@@ -84,11 +84,10 @@ func ReadyProfiles(ctx context.Context, pool *pgxpool.Pool) ([]*Profile, error) 
 	return out, rows.Err()
 }
 
-// SaveProfile upserts a user's profile. When the preferences changed, every
-// rule outcome for the user is invalidated so the next filter pass
-// re-applies the rules (cheap; scores for an unchanged profile text are
-// reused). When only the text changed, scored jobs are requeued so they
-// are scored against the new text.
+// SaveProfile upserts a user's profile. Changed preferences need nothing
+// here: the next filter pass sees they differ from the ones the jobs were
+// filtered with (see FilterForUser). When the text changed, scored jobs are
+// requeued so they are scored against the new text.
 func SaveProfile(ctx context.Context, pool *pgxpool.Pool, userID int64, markdown, profileHash string, prefs config.Preferences, answers json.RawMessage) error {
 	if len(answers) == 0 {
 		answers = json.RawMessage(`{}`)
@@ -104,9 +103,7 @@ func SaveProfile(ctx context.Context, pool *pgxpool.Pool, userID int64, markdown
 	defer tx.Rollback(ctx)
 
 	var oldHash string
-	var oldPrefs []byte
-	err = tx.QueryRow(ctx, `SELECT profile_hash, preferences FROM profiles WHERE user_id = $1 FOR UPDATE`, userID).
-		Scan(&oldHash, &oldPrefs)
+	err = tx.QueryRow(ctx, `SELECT profile_hash FROM profiles WHERE user_id = $1 FOR UPDATE`, userID).Scan(&oldHash)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -120,14 +117,7 @@ func SaveProfile(ctx context.Context, pool *pgxpool.Pool, userID int64, markdown
 		return fmt.Errorf("save profile: %w", err)
 	}
 
-	var old config.Preferences
-	_ = json.Unmarshal(oldPrefs, &old)
-	switch {
-	case !samePreferences(old, prefs):
-		if _, err := tx.Exec(ctx, `UPDATE user_jobs SET content_hash = '' WHERE user_id = $1`, userID); err != nil {
-			return err
-		}
-	case oldHash != profileHash:
+	if oldHash != "" && oldHash != profileHash {
 		if _, err := tx.Exec(ctx, `
 			UPDATE user_jobs SET stage = 'pending_score', updated_at = now()
 			WHERE user_id = $1 AND stage IN ('scored','score_failed')`, userID); err != nil {
@@ -135,12 +125,6 @@ func SaveProfile(ctx context.Context, pool *pgxpool.Pool, userID int64, markdown
 		}
 	}
 	return tx.Commit(ctx)
-}
-
-func samePreferences(a, b config.Preferences) bool {
-	ja, _ := json.Marshal(a)
-	jb, _ := json.Marshal(b)
-	return string(ja) == string(jb)
 }
 
 // SaveResumeText stores the plain text of a user's resume, creating an

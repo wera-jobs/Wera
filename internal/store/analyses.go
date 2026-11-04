@@ -31,14 +31,68 @@ type CachedAnalysis struct {
 // reusable analysis for profileHash. limit <= 0 means no limit.
 // onlyIDs, when not empty, restricts the result to those jobs.
 func PendingScoreJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, profileHash string, limit int, onlyIDs []int64) ([]PendingJob, error) {
-	return pendingJobs(ctx, pool, userID, profileHash, limit, onlyIDs, false)
+	q := `
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url,
+		       COALESCE(j.description, ''),
+		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
+		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
+		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
+		FROM user_jobs uj
+		JOIN jobs j ON j.id = uj.job_id
+		JOIN companies c ON c.id = j.company_id
+		LEFT JOIN analyses a ON a.job_id = j.id AND a.kind = 'score' AND a.profile_hash = $2
+		WHERE uj.user_id = $1 AND uj.stage = 'pending_score' AND j.closed_at IS NULL
+		  AND (cardinality($3::bigint[]) = 0 OR j.id = ANY($3::bigint[]))
+		  AND NOT EXISTS (SELECT 1 FROM user_hidden_companies h
+		                  WHERE h.user_id = uj.user_id AND h.company_id = j.company_id)
+		ORDER BY ` + queueOrder + `, j.posted_at DESC NULLS LAST, j.id DESC`
+	if limit > 0 {
+		q += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	if onlyIDs == nil {
+		onlyIDs = []int64{}
+	}
+	return queryPending(ctx, pool, q, userID, profileHash, onlyIDs)
 }
 
 // PendingWithCachedAnalysis lists the user's pending jobs that already
-// have an analysis for this exact profile text (without descriptions):
-// they can be linked for free instead of scored.
-func PendingWithCachedAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64, profileHash string) ([]PendingJob, error) {
-	return pendingJobs(ctx, pool, userID, profileHash, 0, nil, true)
+// have an analysis for this exact profile text under one of keys (see
+// scoring.ScoreKeys; the last, the current scoring method, is preferred),
+// without descriptions: they can be linked for free instead of scored. A
+// score from an older method is rescored later like any stale score.
+func PendingWithCachedAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64, keys []string) ([]PendingJob, error) {
+	return queryPending(ctx, pool, `
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, '',
+		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
+		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
+		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
+		FROM user_jobs uj
+		JOIN jobs j ON j.id = uj.job_id
+		JOIN companies c ON c.id = j.company_id
+		JOIN LATERAL (
+		  SELECT * FROM analyses a
+		  WHERE a.job_id = j.id AND a.kind = 'score' AND a.profile_hash = ANY($2::text[])
+		  ORDER BY array_position($2::text[], a.profile_hash) DESC
+		  LIMIT 1) a ON true
+		WHERE uj.user_id = $1 AND uj.stage = 'pending_score' AND j.closed_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM user_hidden_companies h
+		                  WHERE h.user_id = uj.user_id AND h.company_id = j.company_id)`, userID, keys)
+}
+
+// ScoredWithAnalysis lists the user's open scored jobs with the analysis
+// each shows, so the post-scoring rules can be applied again after a
+// preference change.
+func ScoredWithAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]PendingJob, error) {
+	return queryPending(ctx, pool, `
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, '',
+		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
+		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
+		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
+		FROM user_jobs uj
+		JOIN jobs j ON j.id = uj.job_id
+		JOIN companies c ON c.id = j.company_id
+		JOIN analyses a ON a.id = uj.analysis_id
+		WHERE uj.user_id = $1 AND uj.stage = 'scored' AND j.closed_at IS NULL`, userID)
 }
 
 // StaleScoredJobs loads up to limit of the user's scored jobs whose score
@@ -74,37 +128,8 @@ func StaleScoredJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, scor
 // very strong old match still goes ahead of a weak new one.
 const queueOrder = "uj.estimated_score - least(15, greatest(0, extract(epoch FROM now() - " + listedAt + ") / 86400 - 30) / 10) DESC NULLS LAST"
 
-func pendingJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, profileHash string, limit int, onlyIDs []int64, cachedOnly bool) ([]PendingJob, error) {
-	desc, join := "COALESCE(j.description, '')", "LEFT JOIN"
-	if cachedOnly {
-		desc, join = "''", "JOIN"
-	}
-	q := `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url,
-		       ` + desc + `,
-		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
-		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
-		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
-		FROM user_jobs uj
-		JOIN jobs j ON j.id = uj.job_id
-		JOIN companies c ON c.id = j.company_id
-		` + join + ` analyses a ON a.job_id = j.id AND a.kind = 'score' AND a.profile_hash = $2
-		WHERE uj.user_id = $1 AND uj.stage = 'pending_score' AND j.closed_at IS NULL
-		  AND (cardinality($3::bigint[]) = 0 OR j.id = ANY($3::bigint[]))
-		  AND NOT EXISTS (SELECT 1 FROM user_hidden_companies h
-		                  WHERE h.user_id = uj.user_id AND h.company_id = j.company_id)
-		ORDER BY ` + queueOrder + `, j.posted_at DESC NULLS LAST, j.id DESC`
-	if limit > 0 {
-		q += fmt.Sprintf(" LIMIT %d", limit)
-	}
-	if onlyIDs == nil {
-		onlyIDs = []int64{}
-	}
-	return queryPending(ctx, pool, q, userID, profileHash, onlyIDs)
-}
-
 // queryPending runs a query selecting a job and an optional analysis (the
-// columns of pendingJobs) and reads the rows.
+// columns of PendingScoreJobs) and reads the rows.
 func queryPending(ctx context.Context, pool *pgxpool.Pool, q string, args ...any) ([]PendingJob, error) {
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
@@ -349,12 +374,13 @@ func RequeueScored(ctx context.Context, pool *pgxpool.Pool, userID int64) (int64
 	return tag.RowsAffected(), nil
 }
 
-// RequeueForRefilter marks every rule outcome stale (userID 0 = every
-// user) so the next filter pass re-applies roles.yaml, for `wera refilter
-// --all`. No LLM cost: jobs that pass again reuse their scores.
+// RequeueForRefilter has the next filter pass re-apply roles.yaml to every
+// open job (userID 0 = every user), for `wera refilter --all`, and returns
+// how many users it marked. No LLM cost: scored jobs that still pass keep
+// their scores.
 func RequeueForRefilter(ctx context.Context, pool *pgxpool.Pool, userID int64) (int64, error) {
 	tag, err := pool.Exec(ctx, `
-		UPDATE user_jobs SET content_hash = ''
+		UPDATE profiles SET filtered_preferences = NULL
 		WHERE ($1 = 0 OR user_id = $1)`, userID)
 	if err != nil {
 		return 0, fmt.Errorf("requeue jobs for refilter: %w", err)
