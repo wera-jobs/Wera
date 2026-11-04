@@ -254,3 +254,20 @@ func GetResumeImport(ctx context.Context, pool *pgxpool.Pool, userID int64) (*Re
 	}
 	return &ri, nil
 }
+
+// JobFitInputs is what a job's fit score was computed from for a user:
+// the score, the model's reply (its ratings) and the job's required skills.
+// Score is nil and raw empty when the job has no score yet.
+func JobFitInputs(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64) (score *int, raw string, required []string, err error) {
+	var facts []byte
+	err = pool.QueryRow(ctx, `
+		SELECT a.fit_score, COALESCE(a.raw #>> '{}', ''), f.facts->'skills_required'
+		FROM user_jobs uj
+		LEFT JOIN analyses a ON a.id = uj.analysis_id
+		LEFT JOIN job_facts f ON f.job_id = uj.job_id
+		WHERE uj.user_id = $1 AND uj.job_id = $2`, userID, jobID).Scan(&score, &raw, &facts)
+	if err == nil && len(facts) > 0 {
+		_ = json.Unmarshal(facts, &required)
+	}
+	return score, raw, required, err
+}

@@ -15,6 +15,7 @@ import (
 	"wera/internal/auth"
 	"wera/internal/pipeline"
 	"wera/internal/profile"
+	"wera/internal/resume"
 	"wera/internal/scoring"
 	"wera/internal/sources"
 	"wera/internal/store"
@@ -263,6 +264,41 @@ func (s *Server) extractJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, d)
+}
+
+// maxPostingChars bounds the posting text a keyword match reads.
+const maxPostingChars = 60000
+
+// postingKeywords is POST /api/ext/keywords: the skills and tools a job
+// page names, and which of them the user's main resume shows. For a job
+// not in Wera yet, so the panel can say how the resume meets it before
+// anything is saved. Word matching only: no AI call, nothing stored.
+func (s *Server) postingKeywords(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Description string `json:"description"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		s.writeError(w, http.StatusBadRequest, "bad JSON body")
+		return
+	}
+	text := in.Description
+	if len(text) > maxPostingChars {
+		text = text[:maxPostingChars]
+	}
+	kws := resume.KnownTerms(scoring.ScrubPosting(text))
+	if len(kws) > 30 {
+		kws = kws[:30]
+	}
+	out := map[string]any{"keywords": kws, "coverage": nil, "resume_id": nil}
+	doc, err := store.BaseResume(r.Context(), s.Pool, currentUser(r).ID)
+	if err == nil {
+		out["coverage"] = resume.KeywordCoverage(doc.Data.PlainText(), kws)
+		out["resume_id"] = doc.ID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, out)
 }
 
 // lookupJob is GET /api/ext/jobs/lookup?url=: the user's job for a page.

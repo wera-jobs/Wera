@@ -20,3 +20,22 @@ func TestMatchSkills(t *testing.T) {
 		t.Errorf("no skills should give two empty lists, got %v %v", m, x)
 	}
 }
+
+func TestTailoredFit(t *testing.T) {
+	raw := `{"ratings": {"role": 9, "seniority": 8, "skills": 6, "domain": 7, "location": 10, "blocker": false}, "reason": "close"}`
+	required := []string{"Go", "Kubernetes", "PostgreSQL", "Terraform", "Kafka"}
+	before, after, ok := TailoredFit(raw, "Backend engineer: Go and PostgreSQL.", "Ran Kafka pipelines on Kubernetes.", required)
+	if !ok {
+		t.Fatal("ratings not read")
+	}
+	if after <= before {
+		t.Errorf("more of the job's skills shown: after %d should beat before %d", after, before)
+	}
+	// Nothing new shown: the same score.
+	if b, a, _ := TailoredFit(raw, "Go and PostgreSQL.", "Go.", required); a != b {
+		t.Errorf("no new skills: before %d, after %d", b, a)
+	}
+	if _, _, ok := TailoredFit(`{"fit_score": 80}`, "", "", required); ok {
+		t.Error("a reply without ratings gave a score")
+	}
+}

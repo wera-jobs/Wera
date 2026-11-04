@@ -15,6 +15,7 @@ import (
 
 	"wera/internal/normalize"
 	"wera/internal/resume"
+	"wera/internal/scoring"
 	"wera/internal/store"
 )
 
@@ -23,6 +24,13 @@ import (
 type resumeView struct {
 	*store.ResumeDoc
 	Coverage *resume.Coverage `json:"coverage,omitempty"`
+	Fit      *tailoredFit     `json:"fit_score,omitempty"`
+}
+
+// tailoredFit is a job's fit score before and with its tailored resume.
+type tailoredFit struct {
+	Before int `json:"before"`
+	After  int `json:"after"`
 }
 
 func (s *Server) renderer(w http.ResponseWriter) bool {
@@ -58,8 +66,30 @@ func (s *Server) view(r *http.Request, doc *store.ResumeDoc) resumeView {
 			c := resume.KeywordCoverage(doc.Data.PlainText(), kws)
 			v.Coverage = &c
 		}
+		v.Fit = s.tailoredFit(r, *doc.JobID, doc.Data.PlainText())
 	}
 	return v
+}
+
+// tailoredFit is the job's fit score, and what it becomes with the
+// skills a tailored resume shows (the model's ratings are kept, see
+// scoring.TailoredFit), or nil when the job has no score to start from.
+func (s *Server) tailoredFit(r *http.Request, jobID int64, text string) *tailoredFit {
+	user := currentUser(r).ID
+	score, raw, required, err := store.JobFitInputs(r.Context(), s.Pool, user, jobID)
+	if err != nil || score == nil || raw == "" {
+		return nil
+	}
+	prof, err := store.GetProfile(r.Context(), s.Pool, user)
+	if err != nil || prof == nil {
+		return nil
+	}
+	before, after, ok := scoring.TailoredFit(raw, prof.Markdown, text, required)
+	if !ok {
+		return nil
+	}
+	// The shown score is the stored one; the resume moves it by what it adds.
+	return &tailoredFit{Before: *score, After: max(0, min(100, *score+after-before))}
 }
 
 func (s *Server) listResumes(w http.ResponseWriter, r *http.Request) {

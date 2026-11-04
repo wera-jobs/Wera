@@ -64,3 +64,20 @@ func MatchSkills(profile SkillSet, skills []string) (matched, missing []string) 
 	}
 	return matched, missing
 }
+
+// TailoredFit is a job's fit score again with more evidence of the
+// candidate's skills (a resume tailored to the job): the model's stored
+// ratings (raw is its reply) are kept, and only the measured coverage of
+// the job's required skills is worked out again from the profile and that
+// text. It returns the score from the profile alone and the score with
+// the text; ok is false when the reply has no usable ratings.
+func TailoredFit(raw, profile, text string, required []string) (before, after int, ok bool) {
+	fit, err := ParseFit(raw)
+	if err != nil {
+		return 0, 0, false
+	}
+	score := func(evidence string) int {
+		return fit.Ratings.Score(Coverage(MatchSkills(NewSkillSet(evidence), required)))
+	}
+	return score(profile), score(profile + "\n" + text), true
+}
