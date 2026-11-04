@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/wera-jobs/Wera/compare/wera-v0.12.0...wera-v0.13.0) (2026-11-04)
+
+
+### Features
+
+* **ext:** match a job page's keywords against the resume ([41776c3](https://github.com/wera-jobs/Wera/commit/41776c3907c61db852159da1999b93104965ac82))
+* **resumes:** show the fit score a tailored resume earns ([540e07c](https://github.com/wera-jobs/Wera/commit/540e07caec7c9a45df8815b78ff65aa143188ef6))
+* **worker:** run on chosen weekdays with RUN_DAYS ([d11c59c](https://github.com/wera-jobs/Wera/commit/d11c59c56510b63693393990ea5d38d3c1ccda96))
+
+
+### Bug Fixes
+
+* **deps:** bump github.com/jackc/pgx/v5 ([#108](https://github.com/wera-jobs/Wera/issues/108)) ([ef3f873](https://github.com/wera-jobs/Wera/commit/ef3f873a7f1920bb1a866715fc1effc4229121c6))
+
 ## [0.12.0](https://github.com/wera-jobs/Wera/compare/wera-v0.11.0...wera-v0.12.0) (2026-11-03)
 
 
