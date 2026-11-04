@@ -19,6 +19,7 @@ type JobQuery struct {
 	Status          string // application status
 	Q               string // title/company search
 	Since           time.Time
+	PostedWithin    int // days; 0 = any age (see listedAt)
 	IncludeExcluded bool
 	Sort            string // "score" (default) | "newest"
 	Limit           int
@@ -113,6 +114,11 @@ func normalizeLimit(limit, def, ceiling int) int {
 	return limit
 }
 
+// listedAt is when a posting went up: the date its job board gives, or
+// when Wera first saw it, whichever is earlier. A company Wera starts
+// watching brings postings that are months old, all first seen that day.
+const listedAt = "LEAST(COALESCE(j.posted_at, j.first_seen_at), j.first_seen_at)"
+
 // ListJobs runs the /api/jobs query for one user. By default it hides
 // excluded, score_failed and closed jobs; IncludeExcluded reveals them
 // (closed jobs stay hidden). Filtering by application status lists what the
@@ -162,9 +168,14 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 		where = append(where, fmt.Sprintf("j.first_seen_at >= $%d", len(args)))
 	}
 
+	if q.PostedWithin > 0 {
+		args = append(args, q.PostedWithin)
+		where = append(where, fmt.Sprintf("%s >= now() - make_interval(days => $%d)", listedAt, len(args)))
+	}
+
 	orderBy := "a.fit_score DESC NULLS LAST, uj.estimated_score DESC NULLS LAST, j.first_seen_at DESC"
 	if q.Sort == "newest" {
-		orderBy = "j.first_seen_at DESC"
+		orderBy = listedAt + " DESC, j.id DESC"
 	}
 	offset := q.Offset
 	if offset < 0 {
