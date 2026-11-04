@@ -186,12 +186,40 @@ func UpdateFetchStatus(ctx context.Context, pool *pgxpool.Pool, companyID int64,
 		UPDATE companies
 		SET last_fetch_at = now(),
 		    last_fetch_ok = $2,
-		    last_fetch_error = NULLIF($3, '')
+		    last_fetch_error = NULLIF($3, ''),
+		    last_ok_at = CASE WHEN $2 THEN now() ELSE last_ok_at END
 		WHERE id = $1`, companyID, ok, errMsg)
 	if err != nil {
 		return fmt.Errorf("update fetch status for company %d: %w", companyID, err)
 	}
 	return nil
+}
+
+// CloseUnreadBoards closes the open postings of boards not read
+// successfully since before, whether they fail (the company moved to
+// another job system or took its board down) or are no longer fetched
+// (disabled or removed). Nothing else would close those postings. The
+// board's ETag and last full sweep are cleared, so when it is read again
+// every posting it still lists reopens, even if the board itself did not
+// change. Added jobs are left to CloseStaleManualJobs. It returns how many
+// boards and postings were closed.
+func CloseUnreadBoards(ctx context.Context, pool *pgxpool.Pool, before time.Time) (boards, jobs int64, err error) {
+	err = pool.QueryRow(ctx, `
+		WITH unread AS (
+		  UPDATE companies c SET etag = NULL, last_full_fetch_at = NULL
+		  WHERE c.last_ok_at < $1
+		    AND EXISTS (SELECT 1 FROM jobs j WHERE j.company_id = c.id AND j.closed_at IS NULL AND j.source <> 'manual')
+		  RETURNING c.id
+		), closed AS (
+		  UPDATE jobs j SET closed_at = now()
+		  WHERE j.company_id IN (SELECT id FROM unread) AND j.closed_at IS NULL AND j.source <> 'manual'
+		  RETURNING 1
+		)
+		SELECT (SELECT count(*) FROM unread), (SELECT count(*) FROM closed)`, before).Scan(&boards, &jobs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("close postings of unread boards: %w", err)
+	}
+	return boards, jobs, nil
 }
 
 // CompanyETag returns the ETag of a company's last successful fetch ("" if none).

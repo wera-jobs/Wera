@@ -234,7 +234,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org) (`fea
 | `wera pipeline` | Fetch, filter, and score once |
 | `wera fetch [--company NAME]` | Fetch job boards only |
 | `wera score` | Score pending jobs only |
-| `wera worker` | Run the pipeline at the `RUN_SCHEDULE` times in `RUN_TIMEZONE`, on `RUN_DAYS` (or every `RUN_INTERVAL` when no schedule is set) |
+| `wera worker` | Run the pipeline at the `RUN_SCHEDULE` times in `RUN_TIMEZONE`, on `RUN_DAYS` (or every `RUN_INTERVAL` when no schedule is set). Why the times are what they are: [docs/run-schedule.md](docs/run-schedule.md) |
 | `wera serve` | REST API, `/healthz`, and Prometheus `/metrics` |
 | `wera discover "Name"` | Find a company's job board on Greenhouse, Lever, or Ashby |
 | `wera companies validate` | Check `companies.yaml` |
@@ -280,7 +280,7 @@ internal/sources      Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Oracle
 internal/store        PostgreSQL repository (pgx)
 internal/testutil     Test database and fixtures
 migrations/           Embedded SQL migrations (goose)
-docs/                 Architecture and pipeline diagrams (Excalidraw sources in docs/diagrams)
+docs/                 Architecture and pipeline diagrams (Excalidraw sources in docs/diagrams), run schedule rationale
 ```
 
 ## Stack

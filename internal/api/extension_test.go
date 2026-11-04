@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"wera/internal/auth"
 	"wera/internal/config"
@@ -78,6 +79,23 @@ func TestExtensionTokensAndAddJob(t *testing.T) {
 	if code, body := do(t, ext, http.MethodPost, ts.URL+"/api/ext/jobs",
 		`{"url":"https://jobs.example.com/acme/124","company":"Acme Robotics E2E","title":"Platform Engineer"}`); code != 201 || !strings.Contains(body, `"location_raw":""`) {
 		t.Errorf("add job without a location: %d %s", code, body)
+	}
+	// The posting date the page gives is kept; one in the future is not.
+	if code, body := do(t, ext, http.MethodPost, ts.URL+"/api/ext/jobs",
+		`{"url":"https://jobs.example.com/acme/125","company":"Acme Robotics E2E","title":"Data Engineer","posted":"2026-09-01T00:00:00Z"}`); code != 201 {
+		t.Errorf("add job with a posting date: %d %s", code, body)
+	} else {
+		var got struct {
+			PostedAt *time.Time `json:"posted_at"`
+		}
+		json.Unmarshal([]byte(body), &got)
+		if got.PostedAt == nil || !got.PostedAt.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+			t.Errorf("posting date not kept: %v", got.PostedAt)
+		}
+	}
+	if code, body := do(t, ext, http.MethodPost, ts.URL+"/api/ext/jobs",
+		`{"url":"https://jobs.example.com/acme/126","company":"Acme Robotics E2E","title":"Data Engineer II","posted":"2999-01-01"}`); code != 201 || !strings.Contains(body, `"posted_at":null`) {
+		t.Errorf("a posting date in the future should be dropped: %d %s", code, body)
 	}
 	if code, _ := do(t, ext, http.MethodPost, ts.URL+"/api/ext/jobs", `{"url":"javascript:alert(1)","company":"A","title":"B"}`); code != 400 {
 		t.Errorf("non-http URL: want 400, got %d", code)
