@@ -85,3 +85,45 @@ func TestScoringQueuePrefersFreshPostings(t *testing.T) {
 		t.Errorf("queue order: %v", got)
 	}
 }
+
+// "Applied this week" counts applications sent in the last 7 days, not
+// every job the user saved or dismissed, nor one moved back after applying.
+func TestStatsAppliedThisWeek(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Pool(t)
+	user := testutil.User(t, pool, false)
+	companyID, _ := testutil.Company(t, pool, "other")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Applied"}, testutil.Job{Title: "Interviewing"}, testutil.Job{Title: "Saved"},
+		testutil.Job{Title: "Undone"}, testutil.Job{Title: "Long ago"})
+	for _, id := range ids {
+		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage) VALUES ($1, $2, 'h', 'scored')`, user.ID, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put := func(id int64, status string) {
+		t.Helper()
+		if err := store.PutApplication(ctx, pool, user.ID, id, store.ApplicationInput{Status: status}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(ids[0], "applied")
+	put(ids[1], "applied")
+	put(ids[1], "interviewing")
+	put(ids[2], "saved")
+	put(ids[3], "applied")
+	put(ids[3], "saved")
+	put(ids[4], "applied")
+	pool.Exec(ctx, `UPDATE applications SET applied_at = now() - interval '9 days' WHERE job_id = $1`, ids[4])
+
+	st, err := store.Stats(ctx, pool, user.ID, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.ApplicationsWeek != 2 {
+		t.Errorf("applied this week: got %d, want 2 (applied, interviewing)", st.ApplicationsWeek)
+	}
+	if st.ByStatus["applied"] != 2 || st.ByStatus["interviewing"] != 1 || st.ByStatus["saved"] != 2 {
+		t.Errorf("by status: %v", st.ByStatus)
+	}
+}
