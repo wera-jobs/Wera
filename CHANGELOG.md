@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.0](https://github.com/wera-jobs/Wera/compare/wera-v0.13.0...wera-v0.14.0) (2026-11-04)
+
+
+### Features
+
+* **api:** filter and sort jobs by when they were posted ([a36332a](https://github.com/wera-jobs/Wera/commit/a36332a09ab0c9d8cf67177aa6f8742d99c7d73f))
+* **api:** keep the posting date of jobs added from a page ([c574b2b](https://github.com/wera-jobs/Wera/commit/c574b2bca7277263722647af1e94116ccab20b8d))
+* **pipeline:** close postings of boards unread for a week ([4725f61](https://github.com/wera-jobs/Wera/commit/4725f61e619730f975e389205c4023b738672772))
+* **scoring:** score fresh postings before months-old ones ([eef2e81](https://github.com/wera-jobs/Wera/commit/eef2e81c49c167c093cf4b2e3a3401c03d930288))
+
+
+### Documentation
+
+* explain the run schedule and how stale postings are handled ([fcccdf5](https://github.com/wera-jobs/Wera/commit/fcccdf5d16f26bb8b0e72d8dbf6c75f3c13d7bf8))
+
 ## [0.13.0](https://github.com/wera-jobs/Wera/compare/wera-v0.12.0...wera-v0.13.0) (2026-11-04)
 
 
