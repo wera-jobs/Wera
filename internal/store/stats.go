@@ -77,15 +77,22 @@ type CompanyView struct {
 // the user's match counts.
 func ListCompanies(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]CompanyView, error) {
 	rows, err := pool.Query(ctx, `
+		WITH open AS (
+		  SELECT company_id, count(*) AS n FROM jobs
+		  WHERE closed_at IS NULL AND source <> 'manual' GROUP BY company_id
+		), mine AS (
+		  SELECT j.company_id, count(*) AS n
+		  FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id AND j.closed_at IS NULL AND j.source <> 'manual'
+		  WHERE uj.user_id = $1 AND uj.stage = 'scored'
+		  GROUP BY j.company_id
+		)
 		SELECT c.id, c.name, c.ats, c.token, c.industry, c.enabled,
 		       c.last_fetch_at, c.last_fetch_ok, c.last_fetch_error,
-		       count(j.id) FILTER (WHERE j.closed_at IS NULL),
-		       count(j.id) FILTER (WHERE uj.stage = 'scored' AND j.closed_at IS NULL)
+		       COALESCE(o.n, 0), COALESCE(m.n, 0)
 		FROM companies c
-		LEFT JOIN jobs j ON j.company_id = c.id AND j.source <> 'manual'
-		LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = $1
+		LEFT JOIN open o ON o.company_id = c.id
+		LEFT JOIN mine m ON m.company_id = c.id
 		WHERE c.ats <> 'manual' -- companies users typed in stay private
-		GROUP BY c.id
 		ORDER BY c.industry, c.name`, userID)
 	if err != nil {
 		return nil, err
@@ -220,32 +227,38 @@ func Stats(ctx context.Context, pool *pgxpool.Pool, userID int64, tz string) (*S
 	if err := countTo(`SELECT stage, count(*) FROM user_jobs WHERE user_id = $1 GROUP BY 1`, out.ByStage); err != nil {
 		return nil, err
 	}
-	if err := countTo(`
-		SELECT c.industry, count(*)
-		FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id JOIN companies c ON c.id = j.company_id
-		WHERE uj.user_id = $1 AND j.closed_at IS NULL AND uj.stage NOT IN ('excluded','score_failed')
-		GROUP BY 1`, out.ByIndustry); err != nil {
+	// The user's live matches, read once for all three breakdowns.
+	rows, err := pool.Query(ctx, `
+		WITH m AS MATERIALIZED (
+		  SELECT c.industry, uj.matched_categories, COALESCE(a.status, 'none') AS status
+		  FROM user_jobs uj
+		  JOIN jobs j ON j.id = uj.job_id AND j.closed_at IS NULL
+		  JOIN companies c ON c.id = j.company_id
+		  LEFT JOIN applications a ON a.job_id = uj.job_id AND a.user_id = uj.user_id
+		  WHERE uj.user_id = $1 AND uj.stage IN ('scored', 'pending_score')
+		)
+		SELECT 'industry', industry, count(*) FROM m GROUP BY industry
+		UNION ALL SELECT 'category', cat, count(*) FROM m, unnest(m.matched_categories) AS cat GROUP BY cat
+		UNION ALL SELECT 'status', status, count(*) FROM m GROUP BY status`, userID)
+	if err != nil {
 		return nil, err
 	}
-	if err := countTo(`
-		SELECT cat, count(*) FROM (
-			SELECT unnest(uj.matched_categories) AS cat
-			FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
-			WHERE uj.user_id = $1 AND j.closed_at IS NULL AND uj.stage NOT IN ('excluded','score_failed')
-		) s GROUP BY 1`, out.ByCategory); err != nil {
-		return nil, err
+	by := map[string]map[string]int64{"industry": out.ByIndustry, "category": out.ByCategory, "status": out.ByStatus}
+	for rows.Next() {
+		var kind, k string
+		var n int64
+		if err := rows.Scan(&kind, &k, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		by[kind][k] = n
 	}
-	if err := countTo(`
-		SELECT COALESCE(a.status, 'none'), count(*)
-		FROM user_jobs uj
-		JOIN jobs j ON j.id = uj.job_id
-		LEFT JOIN applications a ON a.job_id = j.id AND a.user_id = uj.user_id
-		WHERE uj.user_id = $1 AND j.closed_at IS NULL AND uj.stage NOT IN ('excluded','score_failed')
-		GROUP BY 1`, out.ByStatus); err != nil {
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	rows, err := pool.Query(ctx, `
+	rows, err = pool.Query(ctx, `
 		WITH today AS (SELECT (now() AT TIME ZONE $2)::date AS d),
 		     first AS (SELECT (min(first_seen_at) AT TIME ZONE $2)::date AS d FROM jobs)
 		SELECT to_char(s.day, 'YYYY-MM-DD'), COALESCE(c.n, 0)
@@ -277,7 +290,8 @@ func Stats(ctx context.Context, pool *pgxpool.Pool, userID int64, tz string) (*S
 
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM applications
-		WHERE user_id = $1 AND updated_at >= now() - interval '7 days'`, userID).Scan(&out.ApplicationsWeek); err != nil {
+		WHERE user_id = $1 AND applied_at >= now() - interval '7 days'
+		  AND status IN ('applied', 'interviewing', 'offer', 'rejected')`, userID).Scan(&out.ApplicationsWeek); err != nil {
 		return nil, err
 	}
 	return out, nil
