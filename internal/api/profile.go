@@ -252,6 +252,49 @@ func (s *Server) putProfile(w http.ResponseWriter, r *http.Request) {
 	s.getProfile(w, r)
 }
 
+// putPreferences is PUT /api/profile/preferences: during setup, save what
+// the user wants before their profile text is written and start filtering
+// their jobs in the background (half a minute for a new user), so the
+// final save only has to rank them. Profiles already set up use PUT
+// /api/profile.
+func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	var in profileInput
+	if err := decodeJSON(r, &in); err != nil {
+		s.writeError(w, http.StatusBadRequest, "bad JSON body")
+		return
+	}
+	if err := s.validateInput(&in); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	prev, err := store.GetProfile(r.Context(), s.Pool, user.ID)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if prev != nil && prev.Ready() {
+		s.writeError(w, http.StatusConflict, "the profile is set up; save it with PUT /api/profile")
+		return
+	}
+	answers, _ := json.Marshal(in.Answers)
+	if err := store.SavePreferences(r.Context(), s.Pool, user.ID, in.Preferences, answers); err != nil {
+		s.Log.Error("save preferences failed", "err", err)
+		s.writeError(w, http.StatusInternalServerError, "could not save the preferences")
+		return
+	}
+	if s.Prefilter != nil {
+		s.background("prefilter", func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if err := s.Prefilter(ctx, user.ID); err != nil {
+				s.Log.Warn("prefilter failed; the profile save filters instead", "user_id", user.ID, "err", err)
+			}
+		})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // sameText reports whether two profile texts differ only in spacing at
 // the ends of lines and of the text.
 func sameText(a, b string) bool {

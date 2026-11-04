@@ -39,8 +39,9 @@ var testUserID int64
 // testJobIDs are the open jobs testServer created as the user's matches.
 var testJobIDs []int64
 
-// matchCalls counts background matches the server started.
-var matchCalls atomic.Int32
+// matchCalls counts background matches the server started, and
+// prefilterCalls setup prefilters.
+var matchCalls, prefilterCalls atomic.Int32
 
 // cookieTransport adds a fixed session cookie to every request.
 type cookieTransport struct{ cookie string }
@@ -80,6 +81,7 @@ func testServerWith(t *testing.T, reg *metrics.Registry, configure func(*Server)
 		Roles:         roles,
 		Industries:    inds.Industries,
 		MatchUser:     func(context.Context, int64) { matchCalls.Add(1) },
+		Prefilter:     func(context.Context, int64) error { prefilterCalls.Add(1); return nil },
 		Moderator:     fakeModerator,
 		Resumes:       resume.NewRenderer(os.Getenv("TYPST_BIN")),
 	}
