@@ -54,6 +54,30 @@ func (s *Server) putApplication(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
+// clearApplication is DELETE /api/jobs/{id}/application: the job leaves the
+// tracker (undoing a status set by mistake). It returns the job as it is now.
+func (s *Server) clearApplication(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathID(w, r, "id", "job")
+	if !ok {
+		return
+	}
+	user := currentUser(r)
+	if err := store.ClearApplication(r.Context(), s.Pool, user.ID, id); err != nil {
+		s.Log.Error("clear application failed", "err", err)
+		s.writeError(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	job, err := store.GetJob(r.Context(), s.Pool, user.ID, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.writeError(w, http.StatusNotFound, "job not found")
+		return
+	} else if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, job)
+}
+
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	jobs, pending, err := store.TodayJobs(r.Context(), s.Pool, currentUser(r).ID, limit)
