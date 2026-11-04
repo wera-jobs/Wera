@@ -38,7 +38,7 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 		  AND j.closed_at IS NULL
 		  AND uj.stage = 'pending_score'
 		  AND (ap.status IS NULL OR ap.status = 'saved')
-		ORDER BY uj.estimated_score DESC NULLS LAST, j.first_seen_at DESC
+		ORDER BY `+queueOrder+`, j.first_seen_at DESC
 		LIMIT $2`, userID, room)
 		if err != nil {
 			return nil, 0, err
