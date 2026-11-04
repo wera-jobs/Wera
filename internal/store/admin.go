@@ -37,7 +37,7 @@ const adminUserSelect = `
 	       u.monthly_budget_usd::float8,
 	       coalesce((SELECT sum(cost_usd) FROM llm_usage l WHERE l.user_id = u.id AND l.created_at >= date_trunc('month', now())), 0)::float8,
 	       EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = u.id AND p.markdown <> ''),
-	       (SELECT count(*) FROM user_jobs uj WHERE uj.user_id = u.id AND uj.stage NOT IN ('excluded', 'score_failed')),
+	       (SELECT count(*) FROM user_jobs uj WHERE uj.user_id = u.id AND uj.stage IN ('scored', 'pending_score')),
 	       (SELECT count(*) FROM user_jobs uj WHERE uj.user_id = u.id AND uj.stage = 'scored'),
 	       (SELECT count(*) FROM applications a WHERE a.user_id = u.id),
 	       (SELECT count(*) FROM applications a WHERE a.user_id = u.id AND a.status NOT IN ('saved', 'not_interested')),

@@ -131,7 +131,7 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	if q.Status == "" {
 		where = append(where, "j.closed_at IS NULL")
 		if !q.IncludeExcluded {
-			where = append(where, "uj.stage NOT IN ('excluded','score_failed')")
+			where = append(where, "uj.stage IN ('scored','pending_score')")
 		}
 	}
 	if q.Industry != "" {
