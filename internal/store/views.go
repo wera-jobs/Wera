@@ -93,6 +93,17 @@ var ValidApplicationStatuses = map[string]bool{
 	"offer": true, "rejected": true, "not_interested": true,
 }
 
+// ClearApplication takes a job off the user's tracker: no status and no
+// notes, as before they first set one. It is how an accidental status is
+// undone.
+func ClearApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64) error {
+	_, err := pool.Exec(ctx, `DELETE FROM applications WHERE user_id = $1 AND job_id = $2`, userID, jobID)
+	if err != nil {
+		return fmt.Errorf("clear application for job %d: %w", jobID, err)
+	}
+	return nil
+}
+
 // PutApplication upserts the user's application row; applied_at is set
 // the first time the status becomes 'applied' and never overwritten. A
 // job the user has no match row for is pgx.ErrNoRows.

@@ -545,6 +545,7 @@ All JSON. Default list filters hide `stage IN ('excluded','score_failed')` and `
 | GET | `/api/jobs` | List. Query: `group`, `category`, `min_score`, `sponsorship` (yes/unknown), `work_mode`, `status`, `q` (title/company search), `since`, `posted_within` (days since the posting went up), `include_excluded`, `sort` (`score`/`newest`, newest by posting date), `limit`, `offset` |
 | GET | `/api/jobs/{id}` | Job + latest `score` analysis + `deep` analysis if any + application |
 | PUT | `/api/jobs/{id}/application` | Body `{status, notes}`. Sets `applied_at` when status first becomes `applied` |
+| DELETE | `/api/jobs/{id}/application` | Takes the job off the tracker (no status, no notes): undoes a status set by mistake. Returns the job |
 | GET | `/api/today` | Review queue: scored, open jobs with no application status yet (or only saved), sorted by `fit_score` desc |
 | GET | `/api/stats` | Counts by stage/group/category/status, new jobs per day (14 days), applications per week |
 | GET | `/api/runs?limit=20` | Recent runs |
