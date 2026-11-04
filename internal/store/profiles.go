@@ -127,6 +127,25 @@ func SaveProfile(ctx context.Context, pool *pgxpool.Pool, userID int64, markdown
 	return tx.Commit(ctx)
 }
 
+// SavePreferences stores a user's preferences and answers without touching
+// the profile text (setup saves them before the text is drafted).
+func SavePreferences(ctx context.Context, pool *pgxpool.Pool, userID int64, prefs config.Preferences, answers json.RawMessage) error {
+	if len(answers) == 0 {
+		answers = json.RawMessage(`{}`)
+	}
+	prefsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO profiles (user_id, preferences, answers) VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET preferences = EXCLUDED.preferences, answers = EXCLUDED.answers`,
+		userID, prefsJSON, []byte(answers)); err != nil {
+		return fmt.Errorf("save preferences: %w", err)
+	}
+	return nil
+}
+
 // SaveResumeText stores the plain text of a user's resume, creating an
 // empty profile row when the user has none yet.
 func SaveResumeText(ctx context.Context, pool *pgxpool.Pool, userID int64, text string) error {

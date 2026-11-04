@@ -58,9 +58,11 @@ type JobView struct {
 	Reason          *string    `json:"reason"`
 	AppStatus       *string    `json:"application_status"`
 	AppNotes        *string    `json:"application_notes"`
-	// EstimatedScore is the local relevance estimate (35..85), shown
-	// until the LLM fit score arrives.
+	// EstimatedScore is shown until the full AI score arrives: the AI's
+	// quick grade when there is one (EstimateAI), else the local relevance
+	// estimate (35..85).
 	EstimatedScore *int `json:"estimated_score"`
+	EstimateAI     bool `json:"estimate_ai"`
 	// AutofilledAt is when the extension last filled an application for
 	// the job (nil: never).
 	AutofilledAt *time.Time `json:"autofilled_at"`
@@ -80,6 +82,7 @@ const jobViewSelect = `
 	       a.sponsorship, a.work_mode, a.location_summary,
 	       a.skills_matched, a.skills_missing, a.reason,
 	       ap.status, ap.notes, uj.estimated_score,
+	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at
 	FROM user_jobs uj
@@ -100,7 +103,7 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.AutofilledAt, &v.ClosedAt}
+		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt}
 }
 
 // normalizeLimit clamps a page size for API queries.

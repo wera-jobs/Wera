@@ -65,7 +65,8 @@ func keyed(model, kind, prefix string) string {
 }
 
 // RankPending re-ranks the user's unscored matches against their profile
-// without an AI call and stores the estimates (35..85). The estimates order
+// without an AI call and stores the estimates (35..85, or the job's quick
+// grade when it has one). The estimates order
 // the AI scoring queue, decide which jobs get an AI score under the daily
 // limit, and preview jobs on the dashboard. It returns them unrounded, so
 // the best jobs keep their order: many share each whole number.
@@ -115,6 +116,18 @@ func RankPending(ctx context.Context, pool *pgxpool.Pool, e *Embedder, prof *sto
 		}
 		for id, v := range relevance.Scale(blend) {
 			est[id] = v
+		}
+	}
+	// The AI's quick grades beat every local signal (rank correlation with
+	// full scores 0.80 to 0.88 on four users, against 0.05 to 0.73), so a
+	// graded job is estimated by its grade.
+	quick, err := store.QuickGrades(ctx, pool, prof.UserID, scoring.ScoreKey(prof.ProfileHash))
+	if err != nil {
+		return nil, err
+	}
+	for id, g := range quick {
+		if _, ok := est[id]; ok {
+			est[id], exact[id] = g, float64(g)
 		}
 	}
 	return exact, store.SetEstimates(ctx, pool, prof.UserID, est)
