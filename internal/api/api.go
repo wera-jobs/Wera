@@ -180,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/applicant/suggest", s.suggestApplicant)
 			r.Post("/ext/extract", s.extractJob)
 			r.Get("/ext/jobs/lookup", s.lookupJob)
+			r.Post("/ext/keywords", s.postingKeywords)
 			r.Post("/ext/jobs", s.addJob)
 			r.Post("/ext/answer", s.answerQuestion)
 			r.Get("/applicant/answers", s.listAnswers)
