@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.0](https://github.com/wera-jobs/Wera/compare/wera-v0.15.1...wera-v0.16.0) (2026-11-05)
+
+
+### Features
+
+* **api:** filter a new user's jobs while they set up ([7b648d2](https://github.com/wera-jobs/Wera/commit/7b648d26045fddeb4075210b50a6abd1954f46ff))
+* **scoring:** grade every match with batched quick grades ([c2cb4e2](https://github.com/wera-jobs/Wera/commit/c2cb4e2449d8d72e5941a079e7eca869862dc928))
+
+
+### Performance
+
+* **store:** copy a user's new rule outcomes straight into user_jobs ([f6c784e](https://github.com/wera-jobs/Wera/commit/f6c784e7c4e40a36c205ee64a0dc0d9dd5be8d24))
+
+
+### Documentation
+
+* explain quick grades and the setup filter ([e0493f3](https://github.com/wera-jobs/Wera/commit/e0493f3978def1e5f49b5adf1c5abf0356964e4e))
+
 ## [0.15.1](https://github.com/wera-jobs/Wera/compare/wera-v0.15.0...wera-v0.15.1) (2026-11-04)
 
 
