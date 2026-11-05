@@ -345,19 +345,10 @@ func (s *Scorer) scoreCompact(ctx context.Context, j Job, f *Facts) Outcome {
 
 // charge adds one call's tokens and cost to the outcome and the run's budget.
 func (s *Scorer) charge(out *Outcome, c *Completion) {
-	cost := s.callCost(c)
+	cost := callCost(s.Model, c)
 	out.Usage.PromptTokens += c.Usage.PromptTokens
 	out.Usage.CachedTokens += c.Usage.CachedTokens
 	out.Usage.CompletionTokens += c.Usage.CompletionTokens
 	out.CostUSD += cost
 	s.addCost(cost)
-}
-
-// callCost is the provider-reported cost, or the price table estimate.
-func (s *Scorer) callCost(c *Completion) float64 {
-	if c.CostUSD != nil && *c.CostUSD > 0 {
-		return *c.CostUSD
-	}
-	prices, _ := PriceFor(s.Model)
-	return prices.CostUSD(c.Usage.PromptTokens, c.Usage.CachedTokens, c.Usage.CompletionTokens)
 }

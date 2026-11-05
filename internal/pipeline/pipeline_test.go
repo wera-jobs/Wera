@@ -17,6 +17,7 @@ import (
 
 	"wera/internal/config"
 	"wera/internal/filter"
+	"wera/internal/scoring"
 	"wera/internal/store"
 	"wera/internal/testutil"
 )
@@ -25,7 +26,11 @@ import (
 // counts each kind. A posting mentioning "8+ years" gets 8 required years
 // in its facts; every fit's ratings score 75.
 type fakeCoral struct {
-	facts, fits atomic.Int64
+	facts, fits, quick atomic.Int64
+	// quickBest, when set, turns on quick grades: high for the job with
+	// this title, middling for the rest. Unset, quick calls fail and jobs
+	// keep their local estimates.
+	quickBest string
 }
 
 func (f *fakeCoral) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +54,19 @@ func (f *fakeCoral) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		content = `{"seniority":"junior","years_required":` + strconv.Itoa(years) + `,"sponsorship":"unknown",` +
 			`"sponsorship_quote":null,"us_eligible":true,"work_mode":"remote","location_summary":"Remote, US",` +
 			`"skills_required":["Go","Kubernetes"],"digest":"Runs production infrastructure."}`
+	case strings.HasPrefix(system, "You grade how well each") && f.quickBest != "":
+		// Quick grades: 9s for the job titled quickBest, 5s for the rest.
+		f.quick.Add(1)
+		var grades []string
+		for _, line := range strings.Split(last, "\n") {
+			switch {
+			case strings.Contains(line, f.quickBest):
+				grades = append(grades, "[9,9,9,9,9,0]")
+			case strings.Contains(line, " at "):
+				grades = append(grades, "[5,5,5,5,5,0]")
+			}
+		}
+		content = `{"grades":[` + strings.Join(grades, ",") + `]}`
 	case strings.HasPrefix(system, "You score how well"):
 		f.fits.Add(1)
 		content = `{"ratings":{"role":8,"seniority":8,"skills":7,"domain":6,"location":7,"blocker":false},"skills_matched":["Go"],"skills_missing":[],"reason":"Matches the target role."}`
@@ -370,6 +388,129 @@ func TestAddingARoleFamilyKeepsScores(t *testing.T) {
 	}
 	if fit := todayScore(t, pool, u.ID, stale); fit != 88 {
 		t.Errorf("queued job with an old-method score shows %d, want 88", fit)
+	}
+}
+
+// TestQuickGradesRankTheWholeQueue checks that a scoring pass grades every
+// queued job in batches, that the grades order the queue (the daily limit's
+// one full score goes to the best graded job) and show as AI estimates, and
+// that grading costs the user but not their daily score limit.
+func TestQuickGradesRankTheWholeQueue(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{quickBest: testutil.Unique("Quick Platform Engineer")}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	env.ScoresPerDay = 1
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: "Keep Go services healthy."},
+		testutil.Job{Title: "Site Reliability Engineer II", Location: "Remote, US", Description: "Own on-call."},
+		testutil.Job{Title: coral.quickBest, Location: "Remote, US", Description: "Run Kubernetes."},
+	)
+	best := ids[2]
+	u := testutil.User(t, pool, false)
+	// A profile text of its own: no score from another test is reused.
+	p := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM analyses WHERE profile_hash = $1`, scoring.ScoreKey(p.ProfileHash))
+	})
+	if _, err := FilterUser(ctx, pool, testEngine(t), nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The test database may hold other open jobs this profile matches.
+	var pending int
+	pool.QueryRow(ctx, `SELECT count(*) FROM user_jobs WHERE user_id = $1 AND stage = 'pending_score'`, u.ID).Scan(&pending)
+
+	st, err := ScoreUser(ctx, pool, env, log, p, 0, nil, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.QuickGraded != pending || st.Scored != 1 || st.Deferred != pending-1 {
+		t.Fatalf("stats %+v; want all %d graded, 1 scored, the rest deferred", st, pending)
+	}
+	if want := (pending + scoring.QuickBatch - 1) / scoring.QuickBatch; coral.quick.Load() != int64(want) {
+		t.Errorf("%d quick calls for %d jobs, want %d", coral.quick.Load(), pending, want)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, best); stage != "scored" {
+		t.Errorf("the one full score should go to the best graded job: it is %s", stage)
+	}
+	mid := scoring.Ratings{Role: 5, Seniority: 5, Skills: 5, Domain: 5, Location: 5}
+	for _, id := range ids[:2] {
+		var est, grade *int
+		pool.QueryRow(ctx, `SELECT uj.estimated_score, q.score FROM user_jobs uj
+			LEFT JOIN quick_grades q ON q.user_id = uj.user_id AND q.job_id = uj.job_id
+			WHERE uj.user_id = $1 AND uj.job_id = $2`, u.ID, id).Scan(&est, &grade)
+		if grade == nil || est == nil || *est != *grade || *grade < mid.Score(-1)-15 || *grade > mid.Score(-1)+15 {
+			t.Errorf("job %d: estimate %v, quick grade %v; want the grade, about %d", id, est, grade, mid.Score(-1))
+		}
+	}
+	jobs, _, err := store.TodayJobs(ctx, pool, u.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range jobs {
+		if j.FitScore == nil && !j.EstimateAI {
+			t.Errorf("Today shows job %d with an estimate not marked as the AI's", j.ID)
+		}
+	}
+	var quickCost float64
+	pool.QueryRow(ctx, `SELECT COALESCE(sum(cost_usd), 0) FROM llm_usage WHERE user_id = $1 AND kind = 'quick'`, u.ID).Scan(&quickCost)
+	if quickCost <= 0 {
+		t.Error("quick grading was not charged to the user")
+	}
+	act, err := store.UserScoreActivity(ctx, pool, u.ID, scoring.ScoreKey(p.ProfileHash))
+	if err != nil || act.ScoredLastDay != 1 {
+		t.Errorf("quick grades counted against the daily limit: %d scores today (%v), want 1", act.ScoredLastDay, err)
+	}
+
+	// The next pass grades nothing again.
+	if st, err = ScoreUser(ctx, pool, env, log, p, 0, nil, 1, nil); err != nil || st.QuickGraded != 0 {
+		t.Errorf("second pass graded %d (%v), want 0", st.QuickGraded, err)
+	}
+}
+
+// TestPrefilterDuringSetup checks that the rule filter run while a new
+// user writes their profile leaves the profile save nothing to re-filter.
+func TestPrefilterDuringSetup(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	eng := testEngine(t)
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: "Keep Go services healthy."},
+		testutil.Job{Title: "Accountant", Location: "Remote, US", Description: "Close the books."},
+	)
+	u := testutil.User(t, pool, false)
+	if err := store.SavePreferences(ctx, pool, u.ID, srePrefs, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := Prefilter(ctx, pool, eng, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, ids[0]); stage != "pending_score" {
+		t.Errorf("matching job after the prefilter: %s", stage)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, ids[1]); stage != "excluded" {
+		t.Errorf("off-topic job after the prefilter: %s", stage)
+	}
+	p := testutil.Profile(t, pool, u.ID, sreProfile, srePrefs)
+	out, err := store.FilterForUser(ctx, pool, eng, u.ID, &p.Preferences)
+	if err != nil || out.Refiltered {
+		t.Errorf("the save filtered every job again after the prefilter: %+v, %v", out, err)
+	}
+	// Once the text exists the prefilter leaves the user to the matcher.
+	pool.Exec(ctx, `UPDATE profiles SET filtered_preferences = NULL WHERE user_id = $1`, u.ID)
+	if err := Prefilter(ctx, pool, eng, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	var marked bool
+	pool.QueryRow(ctx, `SELECT filtered_preferences IS NOT NULL FROM profiles WHERE user_id = $1`, u.ID).Scan(&marked)
+	if marked {
+		t.Error("the prefilter ran for a profile that has its text")
 	}
 }
 

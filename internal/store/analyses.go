@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wera/internal/scoring"
@@ -204,6 +205,31 @@ func BenchJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 		jobs = append(jobs, j)
 	}
 	return jobs, rows.Err()
+}
+
+// Link points one of a user's jobs at an existing analysis.
+type Link struct {
+	JobID, AnalysisID       int64
+	Stage, Reason, Evidence string
+}
+
+// LinkAnalyses applies many links in one round trip (see LinkAnalysis).
+func LinkAnalyses(ctx context.Context, pool *pgxpool.Pool, userID int64, links []Link) error {
+	if len(links) == 0 {
+		return nil
+	}
+	b := &pgx.Batch{}
+	for _, l := range links {
+		b.Queue(`
+			UPDATE user_jobs
+			SET analysis_id = $3, stage = $4, exclude_reason = $5, exclude_evidence = $6, updated_at = now()
+			WHERE user_id = $1 AND job_id = $2`,
+			userID, l.JobID, l.AnalysisID, l.Stage, nilIfEmpty(l.Reason), nilIfEmpty(l.Evidence))
+	}
+	if err := pool.SendBatch(ctx, b).Close(); err != nil {
+		return fmt.Errorf("link analyses: %w", err)
+	}
+	return nil
 }
 
 // LinkAnalysis points a user's job at an existing analysis and sets the

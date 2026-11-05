@@ -65,6 +65,14 @@ func runServe(ctx context.Context, args []string) error {
 		if err != nil || prof == nil || !prof.Ready() {
 			return
 		}
+		// MatchUser skips a user whose lock is taken: wait out a setup
+		// prefilter still running instead of leaving the user unscored.
+		release, err := store.WaitUserLock(ctx, pool, userID)
+		if err != nil {
+			log.Error("matching after profile save failed", "user_id", userID, "err", err)
+			return
+		}
+		release(ctx)
 		ex, st, err := p.MatchUser(ctx, prof)
 		if err != nil {
 			log.Error("matching after profile save failed", "user_id", userID, "err", err)
@@ -107,8 +115,18 @@ func runServe(ctx context.Context, args []string) error {
 			if err != nil || prof == nil || !prof.Ready() {
 				return err
 			}
+			// A setup prefilter may still hold the lock; most of its work
+			// is then done.
+			release, err := store.WaitUserLock(ctx, pool, userID)
+			if err != nil {
+				return err
+			}
+			defer release(context.Background())
 			_, err = pipeline.FilterUser(ctx, pool, p.Engine, pipeline.NewEmbedder(env, log), prof, reg)
 			return err
+		},
+		Prefilter: func(ctx context.Context, userID int64) error {
+			return pipeline.Prefilter(ctx, pool, p.Engine, userID)
 		},
 		ScoreNow: p.ScoreNow,
 		ShareJob: func(ctx context.Context, jobID, addedBy int64) {

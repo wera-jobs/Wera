@@ -546,7 +546,8 @@ All JSON. Default list filters hide `stage IN ('excluded','score_failed')` and `
 | GET | `/api/jobs/{id}` | Job + latest `score` analysis + `deep` analysis if any + application |
 | PUT | `/api/jobs/{id}/application` | Body `{status, notes}`. Sets `applied_at` when status first becomes `applied` |
 | DELETE | `/api/jobs/{id}/application` | Takes the job off the tracker (no status, no notes): undoes a status set by mistake. Returns the job |
-| GET | `/api/today` | Review queue: scored, open jobs with no application status yet (or only saved), sorted by `fit_score` desc |
+| GET | `/api/today` | Review queue: scored, open jobs with no application status yet (or only saved), sorted by `fit_score` desc, then the best estimates. `pending`: jobs waiting for a full score; `ungraded`: of those, jobs without a quick grade yet. Each job's `estimate_ai` says its estimate is a quick grade |
+| PUT | `/api/profile/preferences` | Setup only (409 once the profile is set up): body `{preferences, answers}`. Saves them before the profile text exists and filters the user's jobs in the background, so the final `PUT /api/profile` has only ranking left |
 | GET | `/api/stats` | Counts by stage/group/category/status, new jobs per day (14 days), applications per week |
 | GET | `/api/runs?limit=20` | Recent runs |
 | GET | `/api/companies` | Companies with last fetch status, job counts |

@@ -66,6 +66,9 @@ type Server struct {
 	// PrepareUser filters and ranks a user's jobs (no LLM, a few seconds)
 	// so the dashboard has estimated matches the moment a save returns.
 	PrepareUser func(ctx context.Context, userID int64) error
+	// Prefilter applies the rule filter during setup, before the profile
+	// text exists (see pipeline.Prefilter).
+	Prefilter func(ctx context.Context, userID int64) error
 	// Moderator replaces the AI moderation call (tests).
 	Moderator func(ctx context.Context, kind moderation.Kind, title, body string) (moderation.Verdict, error)
 
@@ -224,6 +227,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/profile/options", s.profileOptions)
 			r.Get("/profile", s.getProfile)
 			r.Put("/profile", s.putProfile)
+			r.Put("/profile/preferences", s.putPreferences)
 			r.Post("/profile/resume", s.uploadResume)
 			r.Post("/profile/draft", s.draftProfile)
 			r.Post("/profile/suggest", s.suggestPreferences)

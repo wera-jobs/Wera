@@ -357,6 +357,35 @@ func TestProfileFlow(t *testing.T) {
 	if code, body := put(`{"markdown":"# P","preferences":{"role_families":["astrology"],"levels":["mid"]}}`); code != 400 {
 		t.Errorf("unknown family: want 400, got %d %s", code, body)
 	}
+	// Setup saves the preferences before the text exists and filters in
+	// the background.
+	putPrefs := func(payload string) int {
+		req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/profile/preferences", strings.NewReader(payload))
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	filters := prefilterCalls.Load()
+	if code := putPrefs(`{"preferences":{"role_families":["data_science"],"levels":["mid"]}}`); code != 204 {
+		t.Fatalf("setup preferences: %d", code)
+	}
+	if code, body := getBody(t, ts.URL+"/api/profile"); code != 200 || !strings.Contains(body, `"role_families":["data_science"]`) || !strings.Contains(body, `"ready":false`) {
+		t.Errorf("profile after setup preferences: %d %.300s", code, body)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for prefilterCalls.Load() == filters && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if prefilterCalls.Load() == filters {
+		t.Error("setup preferences did not start the prefilter")
+	}
+	if code := putPrefs(`{"preferences":{"role_families":["astrology"],"levels":["mid"]}}`); code != 400 {
+		t.Errorf("unknown family in setup preferences: want 400, got %d", code)
+	}
+
 	before := matchCalls.Load()
 	code, body = put(`{"markdown":"# Candidate Profile\nData scientist.","preferences":{"role_families":["data_science"],` +
 		`"levels":["entry","mid"],"max_years_required":5,"us_only":true},"answers":{"industries":["aerospace"],"work_modes":["remote"]}}`)
@@ -366,7 +395,7 @@ func TestProfileFlow(t *testing.T) {
 	if !strings.Contains(body, `"aerospace"`) {
 		t.Errorf("answers not stored: %s", body)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(2 * time.Second)
 	for matchCalls.Load() == before && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -382,6 +411,9 @@ func TestProfileFlow(t *testing.T) {
 		return h
 	}
 	saved := hash()
+	if code := putPrefs(`{"preferences":{"role_families":["data_science"],"levels":["mid"]}}`); code != 409 {
+		t.Errorf("setup preferences on a set-up profile: want 409, got %d", code)
+	}
 	pool.Exec(context.Background(), `UPDATE profiles SET markdown = markdown || E'\n' WHERE user_id = $1`, testUserID)
 	code, body = put(`{"markdown":"# Candidate Profile   \nData scientist.\n","preferences":{"role_families":["data_science","data_engineering"],` +
 		`"levels":["entry","mid"],"max_years_required":5,"us_only":true}}`)
