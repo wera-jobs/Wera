@@ -215,21 +215,6 @@ func (s *Server) myUsage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) excluded(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	jobs, err := store.ExcludedJobs(r.Context(), s.Pool, currentUser(r).ID, q.Get("reason"), limit)
-	if err != nil {
-		s.Log.Error("excluded failed", "err", err)
-		s.writeError(w, http.StatusInternalServerError, "query failed")
-		return
-	}
-	if jobs == nil {
-		jobs = []store.JobView{}
-	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "count": len(jobs)})
-}
-
 // industryView is one row of GET /api/industries: the taxonomy entry
 // plus its counts.
 type industryView struct {

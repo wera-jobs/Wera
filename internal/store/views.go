@@ -129,31 +129,3 @@ func PutApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64
 	}
 	return nil
 }
-
-// ExcludedJobs returns the user's audit view: excluded jobs with reason
-// and evidence, optionally narrowed to one reason (GET /api/excluded).
-func ExcludedJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, reason string, limit int) ([]JobView, error) {
-	where := "uj.stage = 'excluded' AND j.closed_at IS NULL"
-	args := []any{userID}
-	if reason != "" {
-		args = append(args, reason)
-		where += fmt.Sprintf(" AND uj.exclude_reason = $%d", len(args))
-	}
-	args = append(args, normalizeLimit(limit, 50, 200))
-	sqlText := jobViewSelect + "\nAND " + where +
-		fmt.Sprintf("\nORDER BY j.first_seen_at DESC LIMIT $%d", len(args))
-	rows, err := pool.Query(ctx, sqlText, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []JobView
-	for rows.Next() {
-		var v JobView
-		if err := rows.Scan(jobViewScan(&v)...); err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}

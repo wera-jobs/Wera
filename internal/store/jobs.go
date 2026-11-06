@@ -40,9 +40,9 @@ type JobInput struct {
 //
 // Reappearance: an upsert clears closed_at and refreshes last_seen_at, so
 // a reposted job is simply visible again (still deduped by content_hash).
-// A changed content_hash makes every user's rule outcome for the job stale
-// (user_jobs.content_hash no longer matches), so the next filter pass
-// re-filters and re-scores it.
+// A changed content_hash, or a closed posting listed again, moves the
+// job's changed_at, so the next filter pass of every user reads it again
+// (see FilterForUser).
 func SaveJobs(ctx context.Context, pool *pgxpool.Pool, jobs []JobInput) (seen, newly int, err error) {
 	if len(jobs) == 0 {
 		return 0, 0, nil
@@ -85,6 +85,8 @@ func SaveJobs(ctx context.Context, pool *pgxpool.Pool, jobs []JobInput) (seen, n
 		    content_hash    = EXCLUDED.content_hash,
 		    posted_at       = EXCLUDED.posted_at,
 		    last_seen_at    = now(),
+		    changed_at      = CASE WHEN jobs.closed_at IS NOT NULL OR jobs.content_hash <> EXCLUDED.content_hash
+		                           THEN now() ELSE jobs.changed_at END,
 		    closed_at       = NULL
 		RETURNING (xmax = 0) AS is_new`
 
@@ -140,11 +142,13 @@ type FilterOutcome struct {
 	Refiltered bool
 }
 
-// FilterForUser runs the rule engine over every open job the user has no
-// current outcome for (new jobs and jobs whose content changed), or over
-// every open job when the preferences changed since the last pass, and
-// stores the outcomes in user_jobs. Only outcomes that changed are written:
-// a new role family touches the jobs it lets in, not every job.
+// FilterForUser runs the rule engine over the open jobs added, changed or
+// reopened since the user's last pass (all of them on a first pass, or
+// when the preferences changed since the last one), and stores the
+// outcomes in user_jobs. Only matches get a row: a job the rules reject
+// leaves none, and a row it had is deleted unless the user tracks the job.
+// Only outcomes that changed are written: a new role family touches the
+// jobs it lets in, not every job.
 //
 // A scored job that still passes keeps its score, so a preference change
 // never sends the user's scored matches back to the queue. A job that
@@ -161,20 +165,36 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		return nil, err
 	}
 	var all bool
+	var through *time.Time
+	var started time.Time
+	if err := pool.QueryRow(ctx, `SELECT now()`).Scan(&started); err != nil {
+		return nil, err
+	}
 	if err := pool.QueryRow(ctx, `
-		SELECT filtered_preferences IS DISTINCT FROM $2::jsonb FROM profiles WHERE user_id = $1`,
-		userID, prefsJSON).Scan(&all); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		SELECT filtered_preferences IS DISTINCT FROM $2::jsonb, filtered_through FROM profiles WHERE user_id = $1`,
+		userID, prefsJSON).Scan(&all, &through); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("compare preferences: %w", err)
 	}
+	var since *time.Time
+	if through != nil && !all {
+		// A posting saved while the last pass ran can carry a time just
+		// before it started: read a margin again.
+		t := through.Add(-filterOverlap)
+		since = &t
+	}
 	rows, err := pool.Query(ctx, `
+		WITH todo AS (
+		  SELECT id FROM jobs WHERE closed_at IS NULL AND ($2::timestamptz IS NULL OR changed_at > $2)
+		  UNION
+		  SELECT uj.job_id FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
+		  WHERE uj.user_id = $1 AND j.closed_at IS NULL AND uj.content_hash <> j.content_hash)
 		SELECT j.id, j.content_hash, j.title, COALESCE(j.location_raw, ''),
 		       uj.job_id IS NOT NULL, COALESCE(uj.stage, ''), COALESCE(uj.content_hash, ''),
 		       uj.matched_categories, uj.exclude_reason, uj.exclude_evidence, uj.flags
-		FROM jobs j
+		FROM todo
+		JOIN jobs j ON j.id = todo.id
 		LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = $1
-		WHERE j.closed_at IS NULL
-		  AND (uj.job_id IS NULL
-		       OR (($2 OR uj.content_hash <> j.content_hash) AND j.added_by IS DISTINCT FROM $1))`, userID, all)
+		WHERE uj.job_id IS NULL OR j.added_by IS DISTINCT FROM $1`, userID, since)
 	if err != nil {
 		return nil, fmt.Errorf("load jobs to filter: %w", err)
 	}
@@ -208,7 +228,7 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 	}
 	out := &FilterOutcome{ByReason: map[string]int{}, Refiltered: all}
 	if len(outs) == 0 {
-		return out, nil
+		return out, markThrough(ctx, pool, userID, started)
 	}
 	// Title and location rules on every core (the engine is read-only).
 	workers := runtime.GOMAXPROCS(0)
@@ -253,9 +273,11 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 	}
 
 	// Outcomes for jobs the user has no row for are copied straight into
-	// user_jobs (a new user's half a million, mostly excluded); changed
-	// ones go through a staging table and an upsert.
+	// user_jobs (a new user's matches); changed ones go through a staging
+	// table and an upsert. Rejected jobs get no row, and lose the one they
+	// had (see writeOutcomes).
 	var added, changed [][]any
+	var dropped []int64
 	for i := range outs {
 		o := &outs[i]
 		if o.result.Stage != filter.StageExcluded {
@@ -275,6 +297,12 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 		if o.old != nil && o.old.same(next) {
 			continue
 		}
+		if next.stage == filter.StageExcluded {
+			if o.old == nil {
+				continue
+			}
+			dropped = append(dropped, o.id)
+		}
 		row := []any{userID, o.id, next.hash, next.stage, orEmpty(next.cats),
 			nilIfEmpty(next.reason), nilIfEmpty(next.evidence), orEmpty(next.flags)}
 		if o.old == nil {
@@ -283,24 +311,37 @@ func FilterForUser(ctx context.Context, pool *pgxpool.Pool, eng *filter.Engine, 
 			changed = append(changed, row)
 		}
 	}
-	if err := writeOutcomes(ctx, pool, added, changed); err != nil {
+	if err := writeOutcomes(ctx, pool, userID, added, changed, dropped); err != nil {
 		var pgErr *pgconn.PgError
 		if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
 			return nil, err
 		}
 		// Another pass added some of the rows meanwhile: upsert them all.
-		if err := writeOutcomes(ctx, pool, nil, append(added, changed...)); err != nil {
+		if err := writeOutcomes(ctx, pool, userID, nil, append(added, changed...), dropped); err != nil {
 			return nil, err
 		}
 	}
-	return out, nil
+	return out, markThrough(ctx, pool, userID, started)
+}
+
+// filterOverlap is how far before the last pass's start a pass reads
+// again, for postings saved while it ran.
+const filterOverlap = 10 * time.Minute
+
+// markThrough records that the user's jobs are filtered up to a pass that
+// started at t. Users without a profile row are filtered in full each time.
+func markThrough(ctx context.Context, pool *pgxpool.Pool, userID int64, t time.Time) error {
+	_, err := pool.Exec(ctx, `UPDATE profiles SET filtered_through = $2 WHERE user_id = $1`, userID, t)
+	return err
 }
 
 var outcomeColumns = []string{"user_id", "job_id", "content_hash", "stage", "matched_categories", "exclude_reason", "exclude_evidence", "flags"}
 
 // writeOutcomes stores rule outcomes in one transaction: added rows are
-// copied into user_jobs, changed rows upserted.
-func writeOutcomes(ctx context.Context, pool *pgxpool.Pool, added, changed [][]any) error {
+// copied into user_jobs, changed rows upserted, and the rows of dropped
+// jobs (now rejected) deleted, except for jobs the user tracks, which keep
+// a row marked excluded.
+func writeOutcomes(ctx context.Context, pool *pgxpool.Pool, userID int64, added, changed [][]any, dropped []int64) error {
 	if len(added) == 0 && len(changed) == 0 {
 		return nil
 	}
@@ -336,6 +377,15 @@ func writeOutcomes(ctx context.Context, pool *pgxpool.Pool, added, changed [][]a
 			    exclude_reason = EXCLUDED.exclude_reason, exclude_evidence = EXCLUDED.exclude_evidence,
 			    flags = EXCLUDED.flags, updated_at = now()`); err != nil {
 			return fmt.Errorf("save rule outcomes: %w", err)
+		}
+	}
+	if len(dropped) > 0 {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM user_jobs uj
+			WHERE uj.user_id = $1 AND uj.job_id = ANY($2::bigint[]) AND uj.stage = 'excluded'
+			  AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = uj.user_id AND a.job_id = uj.job_id)`,
+			userID, dropped); err != nil {
+			return fmt.Errorf("drop rejected jobs: %w", err)
 		}
 	}
 	return tx.Commit(ctx)
@@ -406,14 +456,16 @@ func KnownExtIDs(ctx context.Context, pool *pgxpool.Pool, companyID int64) (map[
 }
 
 // TouchJobs marks already-stored postings as still listed: last_seen_at
-// moves to now and a closed posting that reappeared is reopened. Their
-// content is left as stored.
+// moves to now and a closed posting that reappeared is reopened (and
+// changed, so users' filters read it again). Their content is left as
+// stored.
 func TouchJobs(ctx context.Context, pool *pgxpool.Pool, companyID int64, extIDs []string) error {
 	if len(extIDs) == 0 {
 		return nil
 	}
 	_, err := pool.Exec(ctx, `
-		UPDATE jobs SET last_seen_at = now(), closed_at = NULL
+		UPDATE jobs SET last_seen_at = now(), closed_at = NULL,
+		       changed_at = CASE WHEN closed_at IS NOT NULL THEN now() ELSE changed_at END
 		WHERE company_id = $1 AND ext_id = ANY($2::text[])`, companyID, extIDs)
 	if err != nil {
 		return fmt.Errorf("touch jobs for company %d: %w", companyID, err)

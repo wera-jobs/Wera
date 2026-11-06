@@ -320,8 +320,9 @@ func (p *Pipeline) closeUnreadBoards(ctx context.Context, f *FetchStats) {
 	}
 }
 
-// housekeeping closes added postings past their lifetime and drops
-// per-user rows for long-closed postings nobody acted on. Failures are
+// housekeeping closes added postings past their lifetime, drops per-user
+// rows for long-closed postings nobody acted on, and prunes old data (see
+// store.Prune). Failures are
 // logged; they never stop a run.
 func (p *Pipeline) housekeeping(ctx context.Context) {
 	if n, err := store.CloseStaleManualJobs(ctx, p.Pool); err != nil {
@@ -334,4 +335,13 @@ func (p *Pipeline) housekeeping(ctx context.Context) {
 	} else if n > 0 {
 		p.Log.Info("pruned matches for closed jobs", "rows", n)
 	}
+	if st, err := store.Prune(ctx, p.Pool, pruneTime); err != nil {
+		p.Log.Error("pruning old data failed", "err", err)
+	} else if st != (store.PruneStats{}) {
+		p.Log.Info("pruned old data", "jobs", st.Jobs, "embeddings", st.Vectors,
+			"quick_grades", st.Grades, "analyses", st.Analyses)
+	}
 }
+
+// pruneTime bounds the pruning in one run; the next run continues.
+const pruneTime = 5 * time.Minute

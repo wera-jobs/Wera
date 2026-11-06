@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wera/internal/config"
@@ -104,8 +106,12 @@ func testEngine(t *testing.T) *filter.Engine {
 func stageOf(t *testing.T, pool *pgxpool.Pool, userID, jobID int64) (stage, reason string) {
 	t.Helper()
 	var r *string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT stage, exclude_reason FROM user_jobs WHERE user_id = $1 AND job_id = $2`, userID, jobID).Scan(&stage, &r); err != nil {
+	err := pool.QueryRow(context.Background(),
+		`SELECT stage, exclude_reason FROM user_jobs WHERE user_id = $1 AND job_id = $2`, userID, jobID).Scan(&stage, &r)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "" // rejected: only matches have a row
+	}
+	if err != nil {
 		t.Fatalf("user_jobs row for job %d: %v", jobID, err)
 	}
 	if r != nil {
@@ -157,9 +163,10 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if _, err := FilterUser(ctx, pool, eng, nil, p1, nil); err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	for id, want := range map[int64]string{senior: "title:", uk: "location:non_us", noSponsor: "sponsorship:explicit_no", offTopic: "title:no_category"} {
-		if stage, reason := stageOf(t, pool, u1.ID, id); stage != "excluded" || !strings.HasPrefix(reason, want) {
-			t.Errorf("job %d: got %s/%s, want excluded/%s", id, stage, reason, want)
+	// Rejected jobs leave no row (the engine's reasons are tested in filter).
+	for _, id := range []int64{senior, uk, noSponsor, offTopic} {
+		if stage, _ := stageOf(t, pool, u1.ID, id); stage != "" {
+			t.Errorf("job %d: got %s, want no row", id, stage)
 		}
 	}
 	for _, id := range []int64{good, tooSenior} {
@@ -180,8 +187,8 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if st.FactsExtracted != 2 || st.ExcludedByFacts != 1 || st.Scored != 1 {
 		t.Errorf("stats: %+v", st)
 	}
-	if stage, reason := stageOf(t, pool, u1.ID, tooSenior); stage != "excluded" || !strings.Contains(reason, "years") {
-		t.Errorf("8+ years job: %s/%s", stage, reason)
+	if stage, _ := stageOf(t, pool, u1.ID, tooSenior); stage != "" {
+		t.Errorf("8+ years job: %s, want dropped by its facts", stage)
 	}
 	if stage, _ := stageOf(t, pool, u1.ID, good); stage != "scored" {
 		t.Errorf("good job: %s", stage)
@@ -227,7 +234,7 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if _, err := FilterUser(ctx, pool, eng, nil, p2, nil); err != nil {
 		t.Fatalf("filter user 2: %v", err)
 	}
-	if stage, _ := stageOf(t, pool, u2.ID, tooSenior); stage != "excluded" {
+	if stage, _ := stageOf(t, pool, u2.ID, tooSenior); stage != "" {
 		t.Errorf("known facts not applied at filter time: %s", stage)
 	}
 	if _, err := ScoreUser(ctx, pool, env, log, p2, 0, []int64{good}, 1, nil); err != nil {
@@ -311,7 +318,7 @@ func TestAddingARoleFamilyKeepsScores(t *testing.T) {
 	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
 		t.Fatalf("filter: %v", err)
 	}
-	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "excluded" {
+	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "" {
 		t.Fatalf("software engineer before the family is added: %s", stage)
 	}
 	if _, err := ScoreUser(ctx, pool, env, log, p, 0, []int64{keep, stale, tooMany}, 1, nil); err != nil {
@@ -334,7 +341,6 @@ func TestAddingARoleFamilyKeepsScores(t *testing.T) {
 		}
 		return at
 	}
-	before := written(offTopic)
 
 	// Add software engineering and accept at most 2 years.
 	prefs.RoleFamilies = []string{"sre", "platform", "software_engineering"}
@@ -364,14 +370,14 @@ func TestAddingARoleFamilyKeepsScores(t *testing.T) {
 	if fit := todayScore(t, pool, u.ID, stale); fit != 88 {
 		t.Errorf("job scored by the old method shows %d, want its old 88 until rescored", fit)
 	}
-	if stage, reason := stageOf(t, pool, u.ID, tooMany); stage != "excluded" || !strings.Contains(reason, "years") {
-		t.Errorf("scored job asking more years than now accepted: %s/%s", stage, reason)
+	if stage, _ := stageOf(t, pool, u.ID, tooMany); stage != "" {
+		t.Errorf("scored job asking more years than now accepted: %s, want dropped", stage)
 	}
 	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "pending_score" {
 		t.Errorf("job the new family lets in: %s, want pending_score", stage)
 	}
-	if !written(offTopic).Equal(before) {
-		t.Error("a job whose outcome did not change was written again")
+	if stage, _ := stageOf(t, pool, u.ID, offTopic); stage != "" {
+		t.Errorf("a job still rejected got a row: %s", stage)
 	}
 
 	// The next pass knows the jobs were filtered with these preferences.
@@ -499,7 +505,7 @@ func TestPrefilterDuringSetup(t *testing.T) {
 	if stage, _ := stageOf(t, pool, u.ID, ids[0]); stage != "pending_score" {
 		t.Errorf("matching job after the prefilter: %s", stage)
 	}
-	if stage, _ := stageOf(t, pool, u.ID, ids[1]); stage != "excluded" {
+	if stage, _ := stageOf(t, pool, u.ID, ids[1]); stage != "" {
 		t.Errorf("off-topic job after the prefilter: %s", stage)
 	}
 	p := testutil.Profile(t, pool, u.ID, sreProfile, srePrefs)
@@ -573,7 +579,7 @@ func TestShareJob(t *testing.T) {
 	if _, scored, err := p.ShareJob(ctx, accountant, adder.ID); err != nil || scored != 0 {
 		t.Fatalf("share off-topic: scored %d, %v", scored, err)
 	}
-	if stage, _ := stageOf(t, pool, other.ID, accountant); stage != "excluded" {
+	if stage, _ := stageOf(t, pool, other.ID, accountant); stage != "" {
 		t.Errorf("an off-topic added job should be rule-filtered: %s", stage)
 	}
 
