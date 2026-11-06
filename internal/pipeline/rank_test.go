@@ -174,6 +174,61 @@ func TestScoreLimitScoresBestRankedFirst(t *testing.T) {
 	}
 }
 
+// The daily limit goes to fresh postings first: a months-old posting that
+// ranks a little better waits behind a fresh one.
+func TestScoreLimitPrefersFreshPostings(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{quickBest: testutil.Unique("Old Platform Engineer"), quickNext: testutil.Unique("Fresh Platform Engineer")}
+	embedder := &fakeEmbed{}
+	csrv, esrv := httptest.NewServer(coral), httptest.NewServer(embedder)
+	t.Cleanup(csrv.Close)
+	t.Cleanup(esrv.Close)
+	env := testEnv(csrv.URL)
+	env.EmbedBaseURL, env.EmbedModel = esrv.URL, testutil.Unique("embed")
+	env.ScoresPerDay, env.ScoresPerRun, env.InactiveAfterDays = 1, 0, 7
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: coral.quickNext, Location: "Remote, US", Description: "Run Kubernetes."},
+		testutil.Job{Title: coral.quickBest, Location: "Remote, US", Description: "Run Kubernetes."},
+	)
+	fresh, old := ids[0], ids[1]
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET posted_at = now() - interval '300 days' WHERE id = $1`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	u := testutil.User(t, pool, false)
+	prof := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM analyses WHERE profile_hash = $1`, prof.ProfileHash)
+		pool.Exec(context.Background(), `DELETE FROM job_embeddings WHERE model = $1`, env.EmbedModel)
+	})
+	if _, err := FilterUser(ctx, pool, testEngine(t), NewEmbedder(env, log), prof, nil); err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	// Only these two compete for the one score.
+	if _, err := pool.Exec(ctx, `UPDATE user_jobs SET stage = 'excluded' WHERE user_id = $1 AND stage = 'pending_score' AND job_id <> ALL($2)`, u.ID, ids); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ScoreUser(ctx, pool, env, log, prof, 0, nil, 1, nil); err != nil {
+		t.Fatalf("score: %v", err)
+	}
+	var estOld, estFresh int
+	pool.QueryRow(ctx, `SELECT estimated_score FROM user_jobs WHERE user_id = $1 AND job_id = $2`, u.ID, old).Scan(&estOld)
+	pool.QueryRow(ctx, `SELECT estimated_score FROM user_jobs WHERE user_id = $1 AND job_id = $2`, u.ID, fresh).Scan(&estFresh)
+	if estOld <= estFresh || estOld-estFresh >= 20 {
+		t.Fatalf("the old posting should be graded a little better (old %d, fresh %d)", estOld, estFresh)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, fresh); stage != "scored" {
+		t.Errorf("the fresh posting should get the day's score, got %s", stage)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, old); stage != "pending_score" {
+		t.Errorf("the old posting should wait, got %s", stage)
+	}
+}
+
 func TestScoreLimit(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()

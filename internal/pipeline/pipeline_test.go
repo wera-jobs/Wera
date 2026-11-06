@@ -31,6 +31,8 @@ type fakeCoral struct {
 	// this title, middling for the rest. Unset, quick calls fail and jobs
 	// keep their local estimates.
 	quickBest string
+	// quickNext, when set, is the job graded a little below quickBest.
+	quickNext string
 }
 
 func (f *fakeCoral) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,13 +57,16 @@ func (f *fakeCoral) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			`"sponsorship_quote":null,"us_eligible":true,"work_mode":"remote","location_summary":"Remote, US",` +
 			`"skills_required":["Go","Kubernetes"],"digest":"Runs production infrastructure."}`
 	case strings.HasPrefix(system, "You grade how well each") && f.quickBest != "":
-		// Quick grades: 9s for the job titled quickBest, 5s for the rest.
+		// Quick grades: 9s for the job titled quickBest, 8s for quickNext,
+		// 5s for the rest.
 		f.quick.Add(1)
 		var grades []string
 		for _, line := range strings.Split(last, "\n") {
 			switch {
 			case strings.Contains(line, f.quickBest):
 				grades = append(grades, "[9,9,9,9,9,0]")
+			case f.quickNext != "" && strings.Contains(line, f.quickNext):
+				grades = append(grades, "[8,8,8,8,8,0]")
 			case strings.Contains(line, " at "):
 				grades = append(grades, "[5,5,5,5,5,0]")
 			}

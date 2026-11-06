@@ -426,13 +426,19 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 		}
 
 		// 4. Rank what is left (embeddings now cover the new facts, quick
-		// grades the rest) and keep the best within the user's limit. The
-		// rest keep their estimate and get a full score when the user opens
-		// them or on a later run.
+		// grades the rest), less each posting's age penalty as in the
+		// queue order, and keep the best within the user's limit. The rest
+		// keep their estimate and get a full score when the user opens them
+		// or on a later run.
 		if est, err := RankPending(ctx, pool, NewEmbedder(env, log), prof); err != nil {
 			log.Warn("ranking before scoring failed; keeping the previous order", "user_id", prof.UserID, "err", err)
 		} else {
-			sort.SliceStable(candidates, func(a, b int) bool { return est[candidates[a].ID] > est[candidates[b].ID] })
+			now := time.Now()
+			priority := make(map[int64]float64, len(candidates))
+			for _, j := range candidates {
+				priority[j.ID] = est[j.ID] - store.AgePenalty(j.ListedAt, now)
+			}
+			sort.SliceStable(candidates, func(a, b int) bool { return priority[candidates[a].ID] > priority[candidates[b].ID] })
 		}
 		if n >= 0 && n < len(candidates) {
 			st.Deferred = len(candidates) - n
