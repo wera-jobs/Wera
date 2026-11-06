@@ -119,7 +119,7 @@ To change the schedule, edit `RUN_SCHEDULE` and `RUN_DAYS` in the server's `.env
 
 ## Expired and old postings
 
-Freshness also means not showing jobs that have gone. Wera handles this in three ways.
+Freshness also means not showing jobs that have gone. Wera handles this in four ways.
 
 **1. Postings that come down are closed.** Each run lists every board, and postings no longer on it are marked closed. Closed jobs leave the job list, the review queue and the scoring queue, and are never scored. Jobs the user is tracking stay in their tracker with a "Posting closed" badge. A posting that comes back is reopened. Boards that can list just their newest postings get a full listing on the first run of each day. A posting is closed only after a complete listing, so a board that fails to answer never closes anything.
 
@@ -127,7 +127,9 @@ Freshness also means not showing jobs that have gone. Wera handles this in three
 
 **3. Old postings go to the back of the scoring queue.** Many postings stay up for months: on 3 November, 18% of the 574,520 open postings had been up for more than 90 days, and 9% for more than half a year. Some are still hiring, but many are filled already or kept up for show. They had taken a large share of AI scores: 30% of the top 100 in each user's scoring queue had been up for more than 90 days.
 
-The queue now takes one point off a posting's estimated fit for every ten days it has been up past its first month, up to 15 points at six months. That moved postings over 90 days old from 30% of the top 100 to under 1%, at a cost of 1.2 points of average estimated fit. A much stronger old match still goes ahead of a weak new one.
+The queue now takes one point off a posting's estimated fit for every six days it has been up past its third week, up to 20 points (reached at 141 days). On 5 November that left no posting over 90 days old in the top 100 of any user's queue (37% with no penalty), and 4% over 45 days old (51%), at a cost of 1.8 points of average estimated fit. A much stronger old match still goes ahead of a weak new one. The first version (one point per ten days past the first month, up to 15) ordered the queue in the database, but the step that picks the day's scores re-sorted it by estimate alone, so old postings kept taking full scores. Both now use the same penalty.
+
+**4. Today leads with fresh matches.** The review queue on Today orders scored jobs by fit score less the same penalty, so its top pick and first rows are the best fresh postings. Of the 30 best scored jobs of each user, postings over 60 days old fell from 11 to 25 to 0 to 4, at a cost of 3 points of average fit. A posting up for months with an outstanding score still shows, behind fresher strong ones.
 
 On the dashboard, "Newest" sorts by when a posting went up, not by when Wera found it, so a newly added company's months-old postings no longer appear as new. Job cards show when the posting went up and mark postings up for more than 60 days as old. The job list can also be filtered by posting age (`posted_within`).
 
