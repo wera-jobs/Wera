@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 // systemPromptText is the fixed scoring instruction from PLAN.md
@@ -52,6 +53,7 @@ type Job struct {
 	Title       string
 	Location    string
 	URL         string
+	ListedAt    time.Time // when the posting went up; zero when not loaded
 	Description string
 }
 

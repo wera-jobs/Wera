@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"wera/internal/store"
 	"wera/internal/testutil"
@@ -66,7 +67,7 @@ func TestScoringQueuePrefersFreshPostings(t *testing.T) {
 	for i, v := range []struct {
 		days     int
 		estimate int
-	}{{200, 78}, {5, 72}, {200, 90}} {
+	}{{200, 78}, {5, 72}, {200, 95}} {
 		pool.Exec(ctx, `UPDATE jobs SET posted_at = now() - make_interval(days => $2) WHERE id = $1`, ids[i], v.days)
 		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage, estimated_score)
 			VALUES ($1, $2, 'h', 'pending_score', $3)`, user.ID, ids[i], v.estimate); err != nil {
@@ -83,6 +84,76 @@ func TestScoringQueuePrefersFreshPostings(t *testing.T) {
 	}
 	if len(got) != 3 || got[0] != "Old, Great" || got[1] != "Fresh, Fair" || got[2] != "Old, Good" {
 		t.Errorf("queue order: %v", got)
+	}
+}
+
+// Today leads with fresh strong matches: an old posting falls behind a
+// fresh one of a similar score, but a much better one still leads.
+func TestTodayPrefersFreshPostings(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Pool(t)
+	user := testutil.User(t, pool, false)
+	companyID, _ := testutil.Company(t, pool, "other")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Old, Strong"}, testutil.Job{Title: "Fresh, Good"}, testutil.Job{Title: "Old, Outstanding"},
+		testutil.Job{Title: "Three Weeks, Strong"})
+	for i, v := range []struct{ days, fit int }{{300, 90}, {3, 84}, {300, 99}, {20, 90}} {
+		pool.Exec(ctx, `UPDATE jobs SET posted_at = now() - make_interval(days => $2) WHERE id = $1`, ids[i], v.days)
+		if _, err := pool.Exec(ctx, `
+			WITH a AS (INSERT INTO analyses (job_id, kind, model, profile_hash, fit_score, raw, user_id)
+			           VALUES ($2, 'score', 'test', 'k', $3, '{}', $1) RETURNING id)
+			INSERT INTO user_jobs (user_id, job_id, content_hash, stage, analysis_id)
+			SELECT $1, $2, 'h', 'scored', id FROM a`, user.ID, ids[i], v.fit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jobs, _, err := store.TodayJobs(ctx, pool, user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(jobs))
+	for _, j := range jobs {
+		got = append(got, j.Title)
+	}
+	want := []string{"Three Weeks, Strong", "Fresh, Good", "Old, Outstanding", "Old, Strong"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+		t.Errorf("Today order: got %v, want %v", got, want)
+	}
+}
+
+// The penalty in SQL and in Go agree, so Today, the queue and the daily
+// pick of jobs to score order postings alike.
+func TestAgePenaltyMatchesSQL(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Pool(t)
+	user := testutil.User(t, pool, false)
+	companyID, _ := testutil.Company(t, pool, "other")
+	now := time.Now()
+	for _, days := range []int{0, 21, 33, 60, 141, 400} {
+		ids := testutil.Jobs(t, pool, companyID, testutil.Job{Title: testutil.Unique("age")})
+		pool.Exec(ctx, `UPDATE jobs SET posted_at = now() - make_interval(days => $2) WHERE id = $1`, ids[0], days)
+		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage, estimated_score)
+			VALUES ($1, $2, 'h', 'pending_score', 50)`, user.ID, ids[0]); err != nil {
+			t.Fatal(err)
+		}
+		jobs, err := store.PendingScoreJobs(ctx, pool, user.ID, "none", 0, ids)
+		if err != nil || len(jobs) != 1 {
+			t.Fatalf("%d days: %v, %d jobs", days, err, len(jobs))
+		}
+		var sql float64
+		if err := pool.QueryRow(ctx, `SELECT `+store.AgePenaltySQL()+` FROM jobs j WHERE j.id = $1`, ids[0]).Scan(&sql); err != nil {
+			t.Fatal(err)
+		}
+		goPenalty := store.AgePenalty(jobs[0].Job.ListedAt, now)
+		if d := sql - goPenalty; d > 0.01 || d < -0.01 {
+			t.Errorf("%d days: SQL %.3f, Go %.3f", days, sql, goPenalty)
+		}
+	}
+	if p := store.AgePenalty(now.AddDate(0, 0, -15), now); p != 0 {
+		t.Errorf("a two-week-old posting loses %.1f points, want 0", p)
+	}
+	if p := store.AgePenalty(now.AddDate(-1, 0, 0), now); p != 20 {
+		t.Errorf("a year-old posting loses %.1f points, want 20", p)
 	}
 }
 
