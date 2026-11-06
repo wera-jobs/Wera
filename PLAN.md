@@ -345,7 +345,7 @@ CREATE TABLE runs (
 );
 ```
 
-**"Removed" means excluded, not deleted.** Excluded jobs stay in the table with `exclude_reason` and `exclude_evidence` so I can audit and tune the filters. The API hides them by default.
+**Only matches are stored per user.** A posting the rules reject leaves no `user_jobs` row (they were 98-99% of the rows, about 900,000 per user). `jobs.changed_at` moves when a posting is added, changes or reopens, and `profiles.filtered_through` records when the user's last filter pass started, so each pass reads only what changed since; a preference change reads every open posting again. Rows marked `excluded` remain only for jobs the AI ruled out (they keep the analysis) and jobs the user tracks.
 
 ---
 
@@ -536,13 +536,13 @@ Two workloads go beyond one-off calls:
 
 ## 9. REST API (`wera serve`)
 
-All JSON. Default list filters hide `stage IN ('excluded','score_failed')` and `closed_at IS NOT NULL`.
+All JSON. Lists hide `stage IN ('excluded','score_failed')` and `closed_at IS NOT NULL`.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/healthz` | `200 ok` if DB reachable |
 | GET | `/metrics` | Prometheus |
-| GET | `/api/jobs` | List. Query: `group`, `category`, `min_score`, `sponsorship` (yes/unknown), `work_mode`, `status`, `q` (title/company search), `since`, `posted_within` (days since the posting went up), `include_excluded`, `sort` (`score`/`newest`, newest by posting date), `limit`, `offset` |
+| GET | `/api/jobs` | List. Query: `group`, `category`, `min_score`, `sponsorship` (yes/unknown), `work_mode`, `status`, `q` (title/company search), `since`, `posted_within` (days since the posting went up), `sort` (`score`/`newest`, newest by posting date), `limit`, `offset` |
 | GET | `/api/jobs/{id}` | Job + latest `score` analysis + `deep` analysis if any + application |
 | PUT | `/api/jobs/{id}/application` | Body `{status, notes}`. Sets `applied_at` when status first becomes `applied` |
 | DELETE | `/api/jobs/{id}/application` | Takes the job off the tracker (no status, no notes): undoes a status set by mistake. Returns the job |
@@ -551,7 +551,6 @@ All JSON. Default list filters hide `stage IN ('excluded','score_failed')` and `
 | GET | `/api/stats` | Counts by stage/group/category/status, new jobs per day (14 days), applications per week |
 | GET | `/api/runs?limit=20` | Recent runs |
 | GET | `/api/companies` | Companies with last fetch status, job counts |
-| GET | `/api/excluded?reason=` | Audit view of excluded jobs with evidence |
 | * | `/api/admin/*` | The admin app (wera-admin): overview, users (edit, sign out, delete), runs (list, trigger: 409 if one is running), usage, companies, content moderation, email, audit log. Admin browser sessions only |
 
 CORS: allow `http://localhost:5173` in dev (Vite). Bind to `localhost` by default; on the server, access through Tailscale.
