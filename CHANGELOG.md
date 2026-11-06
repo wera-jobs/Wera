@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.18.0](https://github.com/wera-jobs/Wera/compare/wera-v0.17.0...wera-v0.18.0) (2026-11-06)
+
+
+### Features
+
+* daily backups with weekly rotation and offsite copies ([da75364](https://github.com/wera-jobs/Wera/commit/da7536487bd281f8a006e94243188ad5514e2ecd))
+* prune long-closed postings and superseded scores ([3774d68](https://github.com/wera-jobs/Wera/commit/3774d68084ba4355af2f0d99de87853e0d3ff26c))
+* remove the excluded jobs API ([de51d51](https://github.com/wera-jobs/Wera/commit/de51d5181c253686ee63395015f9bf961bcbbf7d))
+* store only matches per user ([5e565c2](https://github.com/wera-jobs/Wera/commit/5e565c2325d2bb0bf4fa07d42707be6c61a930ca))
+
+
+### Documentation
+
+* describe storage limits and their measurements ([c6467b7](https://github.com/wera-jobs/Wera/commit/c6467b7fde84cd8b65e99ab2a8130dbfe0addfc1))
+
 ## [0.17.0](https://github.com/wera-jobs/Wera/compare/wera-v0.16.0...wera-v0.17.0) (2026-11-06)
 
 
