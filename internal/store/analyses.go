@@ -27,13 +27,13 @@ type CachedAnalysis struct {
 
 // PendingScoreJobs loads up to limit of the user's jobs in stage
 // 'pending_score' (highest relevance estimate first, less for postings up
-// for months (see queueOrder), then newest, so the jobs most likely to fit
-// are scored first), with the company name needed for the prompt and any
+// for weeks (see queueOrder), then newest, so the fresh jobs most likely
+// to fit are scored first), with the company name needed for the prompt and any
 // reusable analysis for profileHash. limit <= 0 means no limit.
 // onlyIDs, when not empty, restricts the result to those jobs.
 func PendingScoreJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, profileHash string, limit int, onlyIDs []int64) ([]PendingJob, error) {
 	q := `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url,
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, ` + listedAt + `,
 		       COALESCE(j.description, ''),
 		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
 		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
@@ -63,7 +63,7 @@ func PendingScoreJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, pro
 // score from an older method is rescored later like any stale score.
 func PendingWithCachedAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64, keys []string) ([]PendingJob, error) {
 	return queryPending(ctx, pool, `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, '',
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, `+listedAt+`, '',
 		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
 		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
 		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
@@ -85,7 +85,7 @@ func PendingWithCachedAnalysis(ctx context.Context, pool *pgxpool.Pool, userID i
 // preference change.
 func ScoredWithAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]PendingJob, error) {
 	return queryPending(ctx, pool, `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, '',
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, `+listedAt+`, '',
 		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
 		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
 		       a.location_summary, a.skills_matched, a.skills_missing, a.reason
@@ -103,7 +103,7 @@ func ScoredWithAnalysis(ctx context.Context, pool *pgxpool.Pool, userID int64) (
 // the new one replaces it.
 func StaleScoredJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, scoreKey string, limit int) ([]PendingJob, error) {
 	return queryPending(ctx, pool, `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url,
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, `+listedAt+`,
 		       COALESCE(j.description, ''),
 		       a.id, a.fit_score, a.verdict, a.seniority, a.years_required,
 		       a.sponsorship, a.sponsorship_quote, a.work_mode, a.us_eligible,
@@ -120,14 +120,9 @@ func StaleScoredJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, scor
 }
 
 // queueOrder orders a user's unscored matches for the AI: best estimate
-// first, with a posting losing a point for every ten days it has been up past
-// its first month, up to 15 points at six months. Postings that old are
-// often filled already or kept up for show, and every score spent on one is
-// a fresh posting the user does not see. On a copy of the live data
-// (2026-11-03) it took postings over 90 days old from 30% of the top 100 of
-// each user's queue to under 1%, for 1.2 points of average estimate. A
-// very strong old match still goes ahead of a weak new one.
-const queueOrder = "uj.estimated_score - least(15, greatest(0, extract(epoch FROM now() - " + listedAt + ") / 86400 - 30) / 10) DESC NULLS LAST"
+// first, less the posting's age penalty (see agePenalty), so a fresh
+// posting is scored before an old one that is only slightly better.
+var queueOrder = "uj.estimated_score - " + agePenalty + " DESC NULLS LAST"
 
 // queryPending runs a query selecting a job and an optional analysis (the
 // columns of PendingScoreJobs) and reads the rows.
@@ -147,7 +142,7 @@ func queryPending(ctx context.Context, pool *pgxpool.Pool, q string, args ...any
 		var usEligible *bool
 		var matched, missing []string
 		if err := rows.Scan(&pj.Job.ID, &pj.Job.Company, &pj.Job.Title, &pj.Job.Location,
-			&pj.Job.URL, &pj.Job.Description,
+			&pj.Job.URL, &pj.Job.ListedAt, &pj.Job.Description,
 			&aid, &fit, &verdict, &seniority, &years, &sponsorship, &quote, &workMode,
 			&usEligible, &locSummary, &matched, &missing, &reason); err != nil {
 			return nil, err
@@ -181,7 +176,7 @@ func deref(s *string) string {
 // so nothing changes stage.
 func BenchJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int) ([]scoring.Job, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url,
+		SELECT j.id, c.name, j.title, COALESCE(j.location_raw, ''), j.url, `+listedAt+`,
 		       COALESCE(j.description, '')
 		FROM user_jobs uj
 		JOIN jobs j ON j.id = uj.job_id
@@ -199,7 +194,7 @@ func BenchJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 	var jobs []scoring.Job
 	for rows.Next() {
 		var j scoring.Job
-		if err := rows.Scan(&j.ID, &j.Company, &j.Title, &j.Location, &j.URL, &j.Description); err != nil {
+		if err := rows.Scan(&j.ID, &j.Company, &j.Title, &j.Location, &j.URL, &j.ListedAt, &j.Description); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, j)

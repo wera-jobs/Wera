@@ -122,6 +122,35 @@ func normalizeLimit(limit, def, ceiling int) int {
 // watching brings postings that are months old, all first seen that day.
 const listedAt = "LEAST(COALESCE(j.posted_at, j.first_seen_at), j.first_seen_at)"
 
+// Freshness. Most hiring happens in a posting's first weeks, and a posting
+// up for months is often filled already or kept up for show, so Today and
+// the scoring queue put a posting behind fresher ones a point for every
+// six days it has been up past its third week, up to 20 points (reached
+// at 141 days). A very strong old match still goes ahead of a weak new
+// one. On the live data (2026-11-05), of the 30 best scored jobs of seven
+// users, postings over 60 days old fell from 11-25 per user to 0-4, and
+// the average fit score of those 30 from 87.1 to 84.0. Steeper curves
+// tested cost more fit for few more fresh jobs.
+const (
+	freshDays     = 21
+	daysPerPoint  = 6
+	maxAgePenalty = 20
+)
+
+// agePenalty is AgePenalty in SQL, for a row of jobs j.
+var agePenalty = fmt.Sprintf("least(%d, greatest(0, extract(epoch FROM now() - %s) / 86400 - %d) / %d)",
+	maxAgePenalty, listedAt, freshDays, daysPerPoint)
+
+// AgePenalty is how many points a posting listed at listed loses against
+// fresher ones at now. A zero time (unknown) loses none.
+func AgePenalty(listed, now time.Time) float64 {
+	if listed.IsZero() {
+		return 0
+	}
+	days := now.Sub(listed).Hours() / 24
+	return min(maxAgePenalty, max(0, days-freshDays)/daysPerPoint)
+}
+
 // ListJobs runs the /api/jobs query for one user. By default it hides
 // excluded, score_failed and closed jobs; IncludeExcluded reveals them
 // (closed jobs stay hidden). Filtering by application status lists what the

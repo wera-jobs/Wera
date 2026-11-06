@@ -10,8 +10,9 @@ import (
 )
 
 // TodayJobs returns the review queue for GET /api/today: scored, open jobs
-// that have no application status yet (or are only saved), ordered by fit
-// score descending. Jobs stay until they are applied to, dismissed, or close,
+// that have no application status yet (or are only saved), best fit first
+// less each posting's age penalty (see agePenalty), so fresh strong
+// matches lead. Jobs stay until they are applied to, dismissed, or close,
 // regardless of when they were first seen. While fewer than limit are
 // scored (a new user's first minutes), the rest of the list is filled with
 // the best unscored matches by relevance estimate; pending is how many
@@ -22,7 +23,7 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
 	  AND (ap.status IS NULL OR ap.status = 'saved')
-	ORDER BY a.fit_score DESC NULLS LAST, j.first_seen_at DESC
+	ORDER BY a.fit_score - `+agePenalty+` DESC NULLS LAST, j.first_seen_at DESC
 	LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, 0, err
