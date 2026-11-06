@@ -11,19 +11,18 @@ import (
 
 // JobQuery carries every /api/jobs filter.
 type JobQuery struct {
-	Industry        string
-	Category        string
-	MinScore        int
-	Sponsorship     string // "yes" | "unknown" (only these two are meaningful)
-	WorkMode        string
-	Status          string // application status
-	Q               string // title/company search
-	Since           time.Time
-	PostedWithin    int // days; 0 = any age (see listedAt)
-	IncludeExcluded bool
-	Sort            string // "score" (default) | "newest"
-	Limit           int
-	Offset          int
+	Industry     string
+	Category     string
+	MinScore     int
+	Sponsorship  string // "yes" | "unknown" (only these two are meaningful)
+	WorkMode     string
+	Status       string // application status
+	Q            string // title/company search
+	Since        time.Time
+	PostedWithin int    // days; 0 = any age (see listedAt)
+	Sort         string // "score" (default) | "newest"
+	Limit        int
+	Offset       int
 }
 
 // JobView is one row of the API job list: the job plus company industry,
@@ -152,8 +151,7 @@ func AgePenalty(listed, now time.Time) float64 {
 }
 
 // ListJobs runs the /api/jobs query for one user. By default it hides
-// excluded, score_failed and closed jobs; IncludeExcluded reveals them
-// (closed jobs stay hidden). Filtering by application status lists what the
+// jobs the AI ruled out, failed scores and closed jobs. Filtering by application status lists what the
 // user is tracking, which stays theirs however the posting ends up: most
 // come down within weeks of the application.
 func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery) ([]JobView, error) {
@@ -162,9 +160,7 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 
 	if q.Status == "" {
 		where = append(where, "j.closed_at IS NULL")
-		if !q.IncludeExcluded {
-			where = append(where, "uj.stage IN ('scored','pending_score')")
-		}
+		where = append(where, "uj.stage IN ('scored','pending_score')")
 	}
 	if q.Industry != "" {
 		args = append(args, q.Industry)
