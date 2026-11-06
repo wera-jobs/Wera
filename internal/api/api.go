@@ -220,7 +220,6 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/stats", s.stats)
 			r.Get("/runs", s.runs)
 			r.Get("/companies", s.companies)
-			r.Get("/excluded", s.excluded)
 			r.Get("/industries", s.industries)
 			r.Get("/usage/me", s.myUsage)
 
@@ -318,19 +317,18 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	postedWithin, _ := strconv.Atoi(q.Get("posted_within"))
 
 	jobs, err := store.ListJobs(r.Context(), s.Pool, currentUser(r).ID, store.JobQuery{
-		Industry:        q.Get("industry"),
-		Category:        q.Get("category"),
-		MinScore:        minScore,
-		Sponsorship:     q.Get("sponsorship"),
-		WorkMode:        q.Get("work_mode"),
-		Status:          q.Get("status"),
-		Q:               q.Get("q"),
-		Since:           since,
-		PostedWithin:    max(0, postedWithin),
-		IncludeExcluded: q.Get("include_excluded") == "true",
-		Sort:            q.Get("sort"),
-		Limit:           limit,
-		Offset:          offset,
+		Industry:     q.Get("industry"),
+		Category:     q.Get("category"),
+		MinScore:     minScore,
+		Sponsorship:  q.Get("sponsorship"),
+		WorkMode:     q.Get("work_mode"),
+		Status:       q.Get("status"),
+		Q:            q.Get("q"),
+		Since:        since,
+		PostedWithin: max(0, postedWithin),
+		Sort:         q.Get("sort"),
+		Limit:        limit,
+		Offset:       offset,
 	})
 	if err != nil {
 		s.Log.Error("list jobs failed", "err", err)
