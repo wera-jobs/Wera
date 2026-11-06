@@ -284,7 +284,8 @@ func AddManualJob(ctx context.Context, pool *pgxpool.Pool, userID int64, in Manu
 		}
 		// Added again: the user has just seen it up, so its lifetime restarts.
 		if _, err := tx.Exec(ctx, `
-			UPDATE jobs SET closed_at = NULL, last_seen_at = now()
+			UPDATE jobs SET closed_at = NULL, last_seen_at = now(),
+			       changed_at = CASE WHEN closed_at IS NOT NULL THEN now() ELSE changed_at END
 			WHERE id = $1 AND source = 'manual'`, id); err != nil {
 			return 0, false, fmt.Errorf("reopen job: %w", err)
 		}

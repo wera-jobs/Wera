@@ -65,14 +65,19 @@ type Exclusion struct {
 	Reason, Evidence string
 }
 
-// ExcludeUserJobs marks many of a user's jobs excluded without an
-// analysis, in one round trip.
+// ExcludeUserJobs drops many of a user's jobs the facts rule out (without
+// an analysis), in one round trip.
 func ExcludeUserJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, ex []Exclusion) error {
 	if len(ex) == 0 {
 		return nil
 	}
+	// Only a job the user tracks keeps a row, marked excluded; the rest
+	// leave user_jobs (see FilterForUser).
 	b := &pgx.Batch{}
 	for _, e := range ex {
+		b.Queue(`
+			DELETE FROM user_jobs uj WHERE uj.user_id = $1 AND uj.job_id = $2
+			AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = uj.user_id AND a.job_id = uj.job_id)`, userID, e.JobID)
 		b.Queue(`
 			UPDATE user_jobs SET stage = 'excluded', exclude_reason = $3, exclude_evidence = $4, updated_at = now()
 			WHERE user_id = $1 AND job_id = $2`, userID, e.JobID, e.Reason, nilIfEmpty(e.Evidence))
