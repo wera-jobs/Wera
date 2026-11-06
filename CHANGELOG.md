@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.0](https://github.com/wera-jobs/Wera/compare/wera-v0.16.0...wera-v0.17.0) (2026-11-06)
+
+
+### Features
+
+* put fresh postings first in Today and the scoring queue ([0485c0b](https://github.com/wera-jobs/Wera/commit/0485c0b851dd74ffba3d0ad630d66766cae12e1e))
+
+
+### Documentation
+
+* describe the freshness penalty in Today and the queue ([11ebfb0](https://github.com/wera-jobs/Wera/commit/11ebfb03338f254360cbe190d1f9cfed0390b778))
+
 ## [0.16.0](https://github.com/wera-jobs/Wera/compare/wera-v0.15.1...wera-v0.16.0) (2026-11-05)
 
 
