@@ -58,14 +58,31 @@ Back up before every deploy, with the release as the label:
 deploy/home/backup.sh v0.13.0
 ```
 
-That dumps the database to `~/wera-backups`, checks the file, and deletes
-backups older than 29 days. The privacy policy promises that deleted accounts
-leave the backups within 30 days, so keep the daily cleanup in cron too:
+That dumps the database to `~/wera-backups/wera-pre-v0.13.0-<time>.sql.gz`,
+checks the file, and rotates the backups. A daily backup runs from cron:
 
 ```bash
-30 3 * * * /home/nick/Documents/jesse/wera/deploy/home/backup.sh --prune >> /home/nick/wera-backups/prune.log 2>&1
+30 3 * * * /home/nick/Documents/jesse/wera/deploy/home/backup.sh --daily >> /home/nick/wera-backups/backup.log 2>&1
 ```
 
-If nothing has been deployed for 29 days, the cleanup takes a fresh backup
-before deleting the old one, so there is always a backup and none is older than
-the limit. If the limit in the policy changes, change `BACKUP_DAYS` with it.
+Rotation keeps every backup from the last 7 days, then the newest of each
+week, and deletes everything older than 29 days: the privacy policy promises
+that deleted accounts leave the backups within 30 days. If the limit in the
+policy changes, change `BACKUP_DAYS` with it. That is about ten backups.
+
+### Offsite copies
+
+A backup on the same disk as the database is lost with it. To copy backups
+to an S3-compatible bucket (Backblaze B2 costs about $0.006 per GB a month),
+create a bucket and an application key, then write
+`~/.config/wera/backup.env` (readable only by you, `chmod 600`):
+
+```bash
+BACKUP_S3_URI=s3://wera-backups/home
+BACKUP_S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com
+AWS_ACCESS_KEY_ID=<key id>
+AWS_SECRET_ACCESS_KEY=<application key>
+```
+
+Each backup run then mirrors the backup folder to the bucket, deletions
+included, so the bucket keeps to the same 29 days.
