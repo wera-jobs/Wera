@@ -613,15 +613,22 @@ func (s *Server) tailorJobResume(w http.ResponseWriter, r *http.Request) {
 	}
 	kws, _ := store.JobKeywords(r.Context(), s.Pool, user.ID, id)
 	before := resume.KeywordCoverage(base.Data.PlainText(), kws)
-	reply, err := s.chatForUser(r.Context(), user.ID, "tailor", 2500, resume.TailorMessages(&base.Data, company, title, desc, before.Missing, in.Request))
-	if err != nil {
-		s.writeError(w, http.StatusBadGateway, "the AI service did not answer; try again")
-		return
-	}
-	tailored, err := resume.ApplyTailoring(&base.Data, reply)
-	if err != nil {
-		s.writeError(w, http.StatusBadGateway, "the AI returned an unusable edit; try again")
-		return
+	msgs := resume.TailorMessages(&base.Data, company, title, desc, before.Missing, in.Request)
+	var tailored *resume.Tailored
+	// A reply that can't be read is asked for once more before the user sees an error.
+	for try := 1; tailored == nil; try++ {
+		reply, err := s.chatForUser(r.Context(), user.ID, "tailor", 2500, msgs)
+		if err != nil {
+			s.writeError(w, http.StatusBadGateway, "the AI service did not answer; try again")
+			return
+		}
+		if tailored, err = resume.ApplyTailoring(&base.Data, reply); err != nil {
+			s.Log.Warn("unusable tailoring reply", "user_id", user.ID, "job_id", id, "try", try, "err", err)
+			if try == 2 {
+				s.writeError(w, http.StatusBadGateway, "the AI returned an unusable edit twice; try again in a moment")
+				return
+			}
+		}
 	}
 	doc := &store.ResumeDoc{Title: fmt.Sprintf("%s, %s", title, company), JobID: &id, Data: *tailored.Resume, Layout: base.Layout, Notes: tailored.Notes}
 	if s.Resumes.Available() {
