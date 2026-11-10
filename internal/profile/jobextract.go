@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -64,7 +63,7 @@ func ParseJobDraft(reply, text string, industries map[string]bool) (*JobDraft, e
 		Start string `json:"description_start"`
 		End   string `json:"description_end"`
 	}
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &raw); err != nil {
+	if err := scoring.DecodeJSON(reply, &raw); err != nil {
 		return nil, fmt.Errorf("unreadable extraction: %w", err)
 	}
 	d := raw.JobDraft

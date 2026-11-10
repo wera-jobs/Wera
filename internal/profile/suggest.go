@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,7 +54,7 @@ func SuggestMessages(resume string, roles *config.Roles) []scoring.Message {
 // in the catalog or out of range.
 func ParseSuggestions(reply string, roles *config.Roles) (*Suggestions, error) {
 	var s Suggestions
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &s); err != nil {
+	if err := scoring.DecodeJSON(reply, &s); err != nil {
 		return nil, fmt.Errorf("unreadable suggestions: %w", err)
 	}
 	s.RoleFamilies = keepKnown(s.RoleFamilies, roles.FamilyIDs(), 6)

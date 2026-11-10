@@ -211,7 +211,7 @@ func ParseAutofill(reply string, fields []FormField, today time.Time) ([]Suggest
 			Why        string `json:"why"`
 		} `json:"answers"`
 	}
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &raw); err != nil {
+	if err := scoring.DecodeJSON(reply, &raw); err != nil {
 		return nil, fmt.Errorf("unreadable suggestions: %w", err)
 	}
 	byID := map[string]FormField{}
