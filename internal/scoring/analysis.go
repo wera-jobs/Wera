@@ -1,7 +1,6 @@
 package scoring
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -79,7 +78,7 @@ func StripFences(s string) string {
 // the reply cannot be trusted.
 func ParseAnalysis(text string) (*Analysis, error) {
 	a := &Analysis{}
-	if err := json.Unmarshal([]byte(StripFences(text)), a); err != nil {
+	if err := DecodeJSON(text, a); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSchema, err)
 	}
 	if a.Ratings == nil || !a.Ratings.Valid() {

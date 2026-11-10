@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -39,7 +38,7 @@ var (
 // text itself, so they are never made up).
 func ParseApplicantSuggestions(reply, resume string) (map[string]string, error) {
 	var raw map[string]any
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &raw); err != nil {
+	if err := scoring.DecodeJSON(reply, &raw); err != nil {
 		return nil, fmt.Errorf("unreadable details: %w", err)
 	}
 	// Models sometimes answer numbers (a GPA, a year) as numbers.
