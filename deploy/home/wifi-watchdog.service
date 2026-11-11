@@ -1,0 +1,8 @@
+[Unit]
+Description=Reconnect Wi-Fi if it drops, resetting the adapter if it is stuck
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+# The password is stored system-wide, so this needs no logged-in user.
+ExecStart=/usr/local/sbin/wifi-watchdog
