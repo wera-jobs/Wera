@@ -339,7 +339,7 @@ func (p *Pipeline) housekeeping(ctx context.Context) {
 		p.Log.Error("pruning old data failed", "err", err)
 	} else if st != (store.PruneStats{}) {
 		p.Log.Info("pruned old data", "jobs", st.Jobs, "embeddings", st.Vectors,
-			"quick_grades", st.Grades, "analyses", st.Analyses)
+			"quick_grades", st.Grades, "analyses", st.Analyses, "web_events", st.WebEvents)
 	}
 }
 

@@ -24,6 +24,20 @@ avoids both. If drops come back, look at the machine before the provider:
 journalctl -k | grep -E 'disassociated|authentication with'
 ```
 
+Until there is a cable, two things keep the Wi-Fi up. Install them once with
+`sudo sh deploy/home/wifi-fix-install.sh`:
+
+- **Wi-Fi power saving off** (`wifi-powersave-off.conf`). With it on, the
+  rtl8xxxu adapter goes quiet until the router drops it "for inactivity"
+  while every other device stays connected (2026-11-11).
+- **A watchdog** (`wifi-watchdog.sh`, run every 2 minutes by
+  `wifi-watchdog.timer`). It reconnects when the link is down or cannot
+  reach the router, and reloads the adapter's driver when a reconnect did
+  not help: a stuck adapter cannot even see the network until it is reset.
+  NetworkManager alone can stop trying for hours: after a failed handshake
+  it waits for someone to type the Wi-Fi password (2026-11-10, 13.5 hours
+  down). Its log: `journalctl -u wifi-watchdog`.
+
 The LAN address comes from DHCP and can change, so use the machine's name:
 `http://<hostname>.local:3000`.
 
