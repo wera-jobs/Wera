@@ -551,7 +551,8 @@ All JSON. Lists hide `stage IN ('excluded','score_failed')` and `closed_at IS NO
 | GET | `/api/stats` | Counts by stage/group/category/status, new jobs per day (14 days), applications per week |
 | GET | `/api/runs?limit=20` | Recent runs |
 | GET | `/api/companies` | Companies with last fetch status, job counts |
-| * | `/api/admin/*` | The admin app (wera-admin): overview, users (edit, sign out, delete), runs (list, trigger: 409 if one is running), usage, companies, content moderation, email, audit log. Admin browser sessions only |
+| POST | `/api/page-seen` | Site analytics beacon from the dashboard (no sign-in, no cookies): a page seen or left; always 204. See docs/analytics.md |
+| * | `/api/admin/*` | The admin app (wera-admin): overview, users (edit, sign out, delete), runs (list, trigger: 409 if one is running), usage, traffic (site visitors, pages, bounce rate, referrers, API requests), companies, content moderation, email, audit log. Admin browser sessions only |
 
 CORS: allow `http://localhost:5173` in dev (Vite). Bind to `localhost` by default; on the server, access through Tailscale.
 

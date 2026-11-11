@@ -23,6 +23,9 @@ const (
 	// newer one replaced it (after a profile edit), so "new matches" can
 	// still tell a rescored job from a new one.
 	supersededAnalysisLifetime = 30 * 24 * time.Hour
+	// webEventLifetime is how long site analytics keep a page event: a
+	// year and a month, to compare a month with the same one last year.
+	webEventLifetime = 395 * 24 * time.Hour
 	// pruneBatch bounds one delete statement, so pruning never holds
 	// locks for long.
 	pruneBatch = 5000
@@ -30,7 +33,7 @@ const (
 
 // PruneStats is what one Prune removed.
 type PruneStats struct {
-	Jobs, Vectors, Grades, Analyses int64
+	Jobs, Vectors, Grades, Analyses, WebEvents int64
 }
 
 // Prune deletes what no one will read again, in batches, until done or
@@ -75,6 +78,10 @@ func Prune(ctx context.Context, pool *pgxpool.Pool, maxTime time.Duration) (Prun
 		    AND NOT EXISTS (SELECT 1 FROM applications ap WHERE ap.user_id = a.user_id AND ap.job_id = a.job_id)
 		  LIMIT $2)`, now.Add(-supersededAnalysisLifetime)); err != nil {
 		return st, fmt.Errorf("prune analyses: %w", err)
+	}
+	if st.WebEvents, err = inBatches(ctx, pool, until, `
+		DELETE FROM web_events WHERE id IN (SELECT id FROM web_events WHERE at < $1 LIMIT $2)`, now.Add(-webEventLifetime)); err != nil {
+		return st, fmt.Errorf("prune page events: %w", err)
 	}
 	return st, nil
 }
