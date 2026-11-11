@@ -1,0 +1,731 @@
+[
+  {
+    "id": "backend-first-week",
+    "tracks": ["backend", "fullstack"],
+    "title": "Your first week on the API team",
+    "role": "Backend engineer",
+    "blurb": "You join Wera's API team. A first ticket, its review, a request from product, and a staging outage that may be yours.",
+    "difficulty": "medium",
+    "cast": [
+      {"name": "Amara Osei", "role": "Senior backend engineer, your onboarding buddy"},
+      {"name": "Daniel Reyes", "role": "Product manager, Matching"},
+      {"name": "Priya Nair", "role": "Engineering manager"}
+    ],
+    "steps": [
+      {
+        "skill": "Ramping up",
+        "email": {
+          "from": "Amara Osei", "to": "You", "subject": "Welcome! Your first ticket", "when": "Monday, 9:12 AM",
+          "body": "Welcome to Wera! I'm your onboarding buddy for the month.\n\nYou should have access to the repo and the staging database by now. For a first task, take WERA-412: /api/jobs still returns jobs the user has hidden. It's small, and a good tour of the codebase: the handler is in internal/api and the query in internal/store.\n\nNo rush. Aim for a PR by Thursday. What would help you most this week?"
+        },
+        "prompt": "How do you reply to Amara?",
+        "choices": [
+          {"text": "Thanks! I'll get started right away and let you know when it's done.", "rating": "okay",
+           "feedback": "Friendly and willing, but it answers none of her question. You give her no plan, no checkpoint before Thursday and nothing she could help with, so if you get stuck she won't know until the deadline."},
+          {"text": "Thanks, Amara! Today I'll get the app running locally and read the jobs handler and query end to end. Could we do 30 minutes tomorrow on how the API, worker and database fit together? I'll bring my questions. I'm aiming for a draft PR on Wednesday so there's room for review before Thursday.", "rating": "best",
+           "feedback": "A concrete plan for today, one specific ask that respects her time, and a checkpoint a day before the deadline. That is ownership plus asking for context, which is what an onboarding email tests."},
+          {"text": "Thanks! Before I start, I think we should move the store layer to an ORM; raw SQL is hard to onboard into. Can I make that my first project?", "rating": "weak",
+           "feedback": "Proposing a rewrite in week one, before you understand why things are the way they are, reads as poor judgment. Learn the system and earn context first. Note what slowed you down and raise it in a month, with evidence."},
+          {"text": "Thanks, I'll figure it out on my own so I don't take up your time.", "rating": "weak",
+           "feedback": "Going quiet is the most common onboarding mistake. Your buddy's job is to help, and new hires who ask good questions ramp up much faster than ones who struggle alone."}
+        ],
+        "takeaway": "A good onboarding reply shows you taking ownership and asking for context: a plan, a checkpoint before the deadline and a specific ask."
+      },
+      {
+        "skill": "Technical judgment",
+        "email": {
+          "from": "Amara Osei", "to": "You", "subject": "Re: WERA-412 review", "when": "Wednesday, 2:40 PM",
+          "body": "Nice first PR. Clean and well named.\n\nOne real problem: you fetch 500 rows, drop the hidden jobs in Go, then slice to 50. That breaks pagination. Page 2 can skip or repeat jobs, and a page can come back short when a user has hidden a lot. Can you take another pass?"
+        },
+        "prompt": "How do you respond to the review?",
+        "choices": [
+          {"text": "Good catch. I'll move the filter into the SQL with a NOT EXISTS on hidden_jobs so LIMIT and OFFSET apply after it, and add a test with hidden jobs that straddle a page boundary. Is there an index on hidden_jobs (user_id, job_id), or should I add one in this PR?", "rating": "best",
+           "feedback": "This names the root cause and fixes it at the right layer (the database decides the page). It adds the test that would have caught the bug and asks the next question an experienced engineer would: will the new query have an index?"},
+          {"text": "Makes sense, I'll fix it.", "rating": "okay",
+           "feedback": "Agreeable, but your reviewer can't tell whether you understood the problem. Say how you'll fix it, so a wrong fix gets caught before another review round."},
+          {"text": "I'll raise the fetch to 5,000 rows so there are always enough left after filtering.", "rating": "weak",
+           "feedback": "That treats the symptom. Pages are still wrong for anyone with many hidden jobs, and every request now reads ten times the data."},
+          {"text": "It works for my test user, and they have no hidden jobs, so I think it's fine to merge.", "rating": "weak",
+           "feedback": "A test that never exercises the bug can't prove it's absent. Pushing back on a correct review comment without evidence costs trust fast."}
+        ],
+        "takeaway": "A reply to a technical review is judged on four things: the root cause, a fix at the right layer, a test that would have caught it, and the follow-up question (here, the index)."
+      },
+      {
+        "skill": "Managing stakeholders",
+        "email": {
+          "from": "Daniel Reyes", "to": "You", "cc": ["Amara Osei"], "subject": "Quick ask before Friday's demo", "when": "Wednesday, 4:05 PM",
+          "body": "Hi! I heard you're in the jobs endpoint. Could you also add a \"hide this company\" option for Friday's demo to leadership? It would make the demo land. I know it's not in the sprint, but it's small, right?"
+        },
+        "prompt": "How do you answer Daniel?",
+        "choices": [
+          {"text": "Sure, I'll have it done by Friday!", "rating": "weak",
+           "feedback": "You don't know yet how big it is, it isn't in the sprint, and your lead isn't in the decision. If it slips, the demo and your credibility both suffer, in your first week."},
+          {"text": "That isn't in the sprint, so it needs to go through planning.", "rating": "weak",
+           "feedback": "Technically true but unhelpful. Daniel has a real goal (a good demo), and a flat no leaves him with no options."},
+          {"text": "Happy to help. I'm finishing WERA-412 first, and I don't know yet how big this is. I'll size it with Amara today and tell you by end of day whether Friday is realistic. If it isn't, could a clickable mock work for the demo?", "rating": "best",
+           "feedback": "Willing, honest about capacity, brings in your lead, gives a time for the answer and a fallback that still serves his goal. That is what a stakeholder email looks for."},
+          {"text": "Let me check with Priya and get back to you.", "rating": "okay",
+           "feedback": "The right instinct (don't commit alone), but it hands the decision up without an estimate or options, and gives no time for the answer."}
+        ],
+        "takeaway": "When a stakeholder asks for more, show you're willing, be honest about your capacity, involve your lead, and give a time for the answer plus a fallback."
+      },
+      {
+        "skill": "Ownership under pressure",
+        "email": {
+          "from": "Priya Nair", "to": "You", "subject": "Staging is down?", "when": "Thursday, 10:22 AM",
+          "body": "Hi, the staging API stopped responding about 20 minutes ago, right after your migration ran. Daniel's demo rehearsal is in an hour. What's going on?"
+        },
+        "prompt": "What do you send back?",
+        "choices": [
+          {"text": "My migration only adds an index, so it can't be what broke staging.", "rating": "weak",
+           "feedback": "That's defensive and has no evidence behind it, and a plain CREATE INDEX does block writes to the table while it builds. Check before you rule yourself out."},
+          {"text": "I'm so sorry! I'm still new and didn't know. Should I revert everything?", "rating": "weak",
+           "feedback": "Apologizing is fine, but this gives no diagnosis and hands the decision back to your manager. In an incident she needs status and a plan from you."},
+          {"text": "Looking into it now, will update you soon.", "rating": "okay",
+           "feedback": "It acknowledges the email, but Priya has a rehearsal in an hour and gets no information and no time for the next update."},
+          {"text": "Looking now, and it's likely mine: the migration builds an index on job_events without CONCURRENTLY, which blocks writes to that table while it runs. I've cancelled it and the API is responding again. Tonight I'll rerun it with CREATE INDEX CONCURRENTLY and add a line to the migration checklist. I'll post a short update in #eng in 15 minutes.", "rating": "best",
+           "feedback": "Status first, your part owned with evidence, mitigation done, then the lasting fix, the process change and when the next update comes. Calm, specific and accountable."}
+        ],
+        "takeaway": "In an incident, lead with impact and status. Own your part with evidence, mitigate first, then give the lasting fix and the time of your next update."
+      }
+    ]
+  },
+  {
+    "id": "backend-on-call",
+    "tracks": ["backend", "infra"],
+    "title": "Your first on-call night",
+    "role": "Backend engineer",
+    "blurb": "A 2 a.m. page, a database at 98% CPU, customers asking what happened, and a postmortem nobody wants to write.",
+    "difficulty": "hard",
+    "cast": [
+      {"name": "Kenji Watanabe", "role": "SRE lead"},
+      {"name": "Grace Mwangi", "role": "Head of customer success"},
+      {"name": "Priya Nair", "role": "Engineering manager"}
+    ],
+    "steps": [
+      {
+        "skill": "Triage",
+        "email": {
+          "from": "Wera alerts", "to": "You (primary on call)", "subject": "[FIRING] api: p99 latency 4.2 s (threshold 800 ms), errors 6%", "when": "Tuesday, 2:07 AM",
+          "body": "Alert: api-latency-p99\nSeverity: page\nStarted: 02:03 CST\nCurrent: p99 4.2 s, 5xx rate 6.1%\nRunbook: wiki/runbooks/api-latency"
+        },
+        "prompt": "You're primary on call and it's 2:07 a.m. What do you do first?",
+        "choices": [
+          {"text": "Acknowledge the page, open the runbook and dashboards to see what changed (deploys, traffic, the database), and post in #incidents that you're investigating.", "rating": "best",
+           "feedback": "Acknowledging stops the escalation, and the first question in any incident is what changed. A note in the channel tells everyone the incident has an owner."},
+          {"text": "Restart all the API pods. That usually clears latency.", "rating": "weak",
+           "feedback": "Acting blind may not help, can make it worse (a cold start herd on a struggling database), and wipes out the evidence you need."},
+          {"text": "Wait 15 minutes to see if it clears up before doing anything.", "rating": "weak",
+           "feedback": "With 6% of requests failing, users are already affected. Paging alerts exist because waiting is expensive."},
+          {"text": "Page the whole backend team so everyone can look at it together.", "rating": "okay",
+           "feedback": "Escalating isn't wrong, but doing it before any triage wakes up people who may not be needed. Look for a few minutes, then pull in the right person."}
+        ],
+        "takeaway": "Start every incident the same way: acknowledge it, look at what changed, and say in the incident channel that you own it."
+      },
+      {
+        "skill": "Mitigation first",
+        "email": {
+          "from": "Kenji Watanabe", "to": "You", "subject": "Re: [FIRING] api p99 latency", "when": "Tuesday, 2:19 AM",
+          "body": "I'm on. Database CPU is at 98%. pg_stat_activity shows one query running thousands of times a minute: the new \"similar jobs\" query from yesterday's 6 p.m. deploy. It's behind the similar_jobs flag. Your call on mitigation."
+        },
+        "prompt": "What's your call?",
+        "choices": [
+          {"text": "Add an index on production right now to make the query fast.", "rating": "okay",
+           "feedback": "It might be the real fix, but it's an untested change at 2 a.m. on a database already at 98% CPU, and building the index adds load. Stop the bleeding first, then fix it properly."},
+          {"text": "Scale the database up to a bigger instance.", "rating": "weak",
+           "feedback": "Slow, expensive, and resizing often means a failover or restart mid-incident. It also leaves the bad query running."},
+          {"text": "Turn off the similar_jobs flag now, confirm latency and CPU recover, and leave the query fix and its plan for working hours.", "rating": "best",
+           "feedback": "The fastest change you can safely undo, and it removes the cause. Feature flags exist for exactly this. Then check that it worked."},
+          {"text": "Email the author of the change and ask them to fix it.", "rating": "weak",
+           "feedback": "You're on call, so the mitigation is yours. Waiting for someone to wake up keeps users in pain, and the flag is already in your hands."}
+        ],
+        "takeaway": "Mitigate before you fix: pick the fastest change you can undo (a flag or a rollback), confirm it worked, and fix the cause in daylight."
+      },
+      {
+        "skill": "Clear communication",
+        "email": {
+          "from": "Grace Mwangi", "to": "You", "subject": "Customers asking about last night", "when": "Tuesday, 8:31 AM",
+          "body": "Morning! A few customers wrote overnight that job search was failing. What should I tell them? Is it over?"
+        },
+        "prompt": "How do you reply to Grace?",
+        "choices": [
+          {"text": "Just tell them it was a temporary glitch.", "rating": "okay",
+           "feedback": "Not false, but vague. Customers trust a company more when it says what happened, how long it lasted and that it's fixed."},
+          {"text": "It was CPU saturation on Postgres from an unindexed query in the similar-jobs feature; we killed the flag at 02:24.", "rating": "weak",
+           "feedback": "Accurate, but written for engineers. Grace can't send this to customers, so she'd have to come back and ask you again."},
+          {"text": "I'd rather not say anything until the postmortem is done.", "rating": "weak",
+           "feedback": "Silence makes customers fear the worst, and Grace is the one taking their emails. Share what you know now and follow up with more later."},
+          {"text": "Yes, it's over. Search was slow or failing from 2:03 to 2:24 a.m. Central after a change we released. We switched it off and everything has worked normally since. No data was lost. We're adding checks so changes like this get caught before release, and I'll send you the write-up by Thursday.", "rating": "best",
+           "feedback": "Plain words, what was affected and for how long, that it's fixed, that data is safe, what changes next, and when Grace hears more. She can paste it straight to customers."}
+        ],
+        "takeaway": "Write for your reader. For customers that means what was affected, for how long, that it's fixed, that their data is safe, and what happens next."
+      },
+      {
+        "skill": "Blameless postmortem",
+        "email": {
+          "from": "Priya Nair", "to": "You", "subject": "Postmortem for last night", "when": "Wednesday, 11:00 AM",
+          "body": "Thanks for handling last night. Can you draft the postmortem? The engineer who wrote the similar-jobs query feels terrible and asked whether the doc will name them. How do you want to write the root cause?"
+        },
+        "prompt": "How do you approach the root cause?",
+        "choices": [
+          {"text": "Write the timeline and impact, and skip action items since it's already resolved.", "rating": "okay",
+           "feedback": "A timeline is useful, but without action items the same gap (no load test, no alert on query volume) is still there for the next change."},
+          {"text": "Blameless: explain how the change reached production. Nothing load-tested the query, review didn't catch it, and nothing alerted on query volume. Then list fixes to those, each with an owner and a date.", "rating": "best",
+           "feedback": "People make mistakes, and systems should catch them. Blameless postmortems get honest timelines and fixes that last, and the author learns without being shamed."},
+          {"text": "Name the engineer, so everyone knows who to ask about it.", "rating": "weak",
+           "feedback": "Blame makes people hide mistakes next time and points the fix at a person instead of the process that let it through."},
+          {"text": "Keep the root cause vague so nobody looks bad.", "rating": "weak",
+           "feedback": "Being kind doesn't mean being vague. A fuzzy root cause produces fuzzy fixes. Be specific about the system and leave out blame."}
+        ],
+        "takeaway": "Blameless doesn't mean vague: be specific about how the system let the change through, and give every fix an owner and a date."
+      }
+    ]
+  },
+  {
+    "id": "frontend-launch",
+    "tracks": ["frontend", "fullstack"],
+    "title": "Launch week for the new job card",
+    "role": "Frontend engineer",
+    "blurb": "A design that fails contrast, a search box that freezes, an API change landing mid-week, and a keyboard bug two days before launch.",
+    "difficulty": "medium",
+    "cast": [
+      {"name": "Leo Martins", "role": "Product designer"},
+      {"name": "Daniel Reyes", "role": "Product manager"},
+      {"name": "Amara Osei", "role": "Senior backend engineer"}
+    ],
+    "steps": [
+      {
+        "skill": "Working with design",
+        "email": {
+          "from": "Leo Martins", "to": "You", "subject": "Final job card designs", "when": "Monday, 10:03 AM",
+          "body": "The final Figma for the new job card is up! One note: the location and posted date are light gray (#B0B0B0) on white. That's the look we want, so please match it exactly."
+        },
+        "prompt": "How do you reply to Leo?",
+        "choices": [
+          {"text": "On it, pixel perfect!", "rating": "weak",
+           "feedback": "#B0B0B0 on white has about 2.2:1 contrast, well under the 4.5:1 WCAG AA minimum for text. Building it exactly as designed ships text that many people can't read."},
+          {"text": "I'll build it, and quietly use a darker gray.", "rating": "okay",
+           "feedback": "The result is accessible, but changing a design behind the designer's back erodes trust, and the next design will have the same problem."},
+          {"text": "Looks great. One flag: #B0B0B0 on white is about 2.2:1 contrast, below WCAG AA's 4.5:1 for text, so some people won't be able to read the location. Would #6B6B6B work? It's close to the look and passes at about 5.3:1. Happy to pair on it.", "rating": "best",
+           "feedback": "Specific (the measured ratio and the standard), it offers a fix that keeps his intent, and it's collaborative. Frontend engineers are expected to catch accessibility issues early and raise them kindly."},
+          {"text": "Gray text is bad design, so I'll use black.", "rating": "weak",
+           "feedback": "Overrides the designer with taste rather than evidence. The issue is contrast, not gray."}
+        ],
+        "takeaway": "Raise a design problem with evidence (the contrast ratio and the standard) and a fix that keeps the designer's intent, before you build it."
+      },
+      {
+        "skill": "Performance",
+        "email": {
+          "from": "Daniel Reyes", "to": "You", "subject": "Search box freezing", "when": "Tuesday, 3:15 PM",
+          "body": "A few beta users say the page freezes for about a second on each letter they type into search, when they have around 2,000 jobs loaded. Any idea what's going on?"
+        },
+        "prompt": "What do you tell Daniel?",
+        "choices": [
+          {"text": "Probably slow laptops. It's fast on mine.", "rating": "weak",
+           "feedback": "Your machine is not your users' machine. A second per keystroke is a real bug, and you can reproduce it with CPU throttling in DevTools."},
+          {"text": "I'll profile it in DevTools first. My guess is that every keystroke re-filters and re-renders all 2,000 cards. The likely fixes are deferring the filter (useDeferredValue or a short debounce), memoizing the filtered list, and virtualizing the list so only visible cards render. I'll share before and after numbers.", "rating": "best",
+           "feedback": "Measure first, give a plausible cause, then fixes in order of cost, and promise numbers. That's how performance work is judged in interviews and at work."},
+          {"text": "Let's only show 10 jobs per page.", "rating": "okay",
+           "feedback": "It would hide the problem, but it changes the product without measuring anything, and the filter may still be slow."},
+          {"text": "I'll rewrite the page in a faster framework.", "rating": "weak",
+           "feedback": "The framework is almost never the problem. Rendering 2,000 items on each keystroke is slow anywhere."}
+        ],
+        "takeaway": "Answer performance questions by measuring first, naming the likely cause, and listing fixes from cheapest to most expensive, with numbers to prove them."
+      },
+      {
+        "skill": "API contracts",
+        "email": {
+          "from": "Amara Osei", "to": "You", "subject": "Heads up: salary field changing", "when": "Tuesday, 5:40 PM",
+          "body": "FYI, in Thursday's API release, `salary` on /api/jobs becomes an object, {min, max, currency}, instead of a string like \"$120k-150k\". Your job card ships Friday."
+        },
+        "prompt": "How do you reply to Amara?",
+        "choices": [
+          {"text": "OK, I'll update the card on Friday.", "rating": "weak",
+           "feedback": "Between Thursday's release and Friday's, the live card breaks for everyone. A breaking change needs a transition, not two releases on different days."},
+          {"text": "I'll make the card handle both a string and an object for now.", "rating": "okay",
+           "feedback": "Defensive code works, but it's one-sided. The backend should also avoid breaking clients, and now you have a hidden shape to maintain."},
+          {"text": "Could the old string stay alongside a new field (say salary_range) for a release or two? I'll switch the card to the new field and tell you when it's live, then you remove the old one. I'll add the TypeScript type today.", "rating": "best",
+           "feedback": "Expand, then contract: add the new field, move the clients over, remove the old one. Nothing breaks, and each side knows what to do and when."},
+          {"text": "Please don't change the API; the card depends on it.", "rating": "weak",
+           "feedback": "Blocking a reasonable change isn't the answer. Agree on how to change it safely."}
+        ],
+        "takeaway": "Change an API in two steps: add the new shape, move every client over, then remove the old one."
+      },
+      {
+        "skill": "Quality vs. deadline",
+        "email": {
+          "from": "Daniel Reyes", "to": "You", "subject": "QA: keyboard bug", "when": "Wednesday, 9:50 AM",
+          "body": "QA found that you can't reach the Save button on the new card with the Tab key. Launch is Friday. Can we ship and fix it later?"
+        },
+        "prompt": "What do you propose?",
+        "choices": [
+          {"text": "Delay the launch two weeks for a full accessibility audit.", "rating": "okay",
+           "feedback": "Taking accessibility seriously is right, but this is out of proportion. A targeted fix and test is enough to ship on time."},
+          {"text": "That's for QA to fix.", "rating": "weak",
+           "feedback": "QA finds bugs. Fixing your component is your job."},
+          {"text": "Ship it. Few people use the keyboard.", "rating": "weak",
+           "feedback": "Keyboard and screen reader users can't save jobs at all, and many sighted power users rely on the keyboard too. This blocks the feature for them, and it's usually an easy fix."},
+          {"text": "That's likely a div with an onClick instead of a real button. It's a small fix: I'll switch it to a <button> today and test with the keyboard and a screen reader, so we still ship Friday. If anything else turns up, you'll hear by tomorrow noon.", "rating": "best",
+           "feedback": "Diagnoses it, sizes it, fixes it properly with the right test, keeps the date, and sets a time for any bad news."}
+        ],
+        "takeaway": "When quality and a deadline collide, size the fix first. Most accessibility bugs take an hour, not a delay."
+      }
+    ]
+  },
+  {
+    "id": "data-signup-dip",
+    "tracks": ["data", "product"],
+    "title": "The sign-up dip",
+    "role": "Data analyst",
+    "blurb": "Sign-ups fell 22% before a board meeting. Find out whether it's real, read an A/B test honestly, and say no to a flattering chart.",
+    "difficulty": "medium",
+    "cast": [
+      {"name": "Marcus Bell", "role": "VP of Growth"},
+      {"name": "Sofia Lindqvist", "role": "Data lead"},
+      {"name": "Daniel Reyes", "role": "Product manager"}
+    ],
+    "steps": [
+      {
+        "skill": "Scoping an ask",
+        "email": {
+          "from": "Marcus Bell", "to": "You", "subject": "Sign-ups down 22%??", "when": "Monday, 8:47 AM",
+          "body": "Sign-ups dropped 22% last week. Board meeting is Thursday. What happened?"
+        },
+        "prompt": "How do you reply to Marcus?",
+        "choices": [
+          {"text": "I'll look into it and send you what I find.", "rating": "okay",
+           "feedback": "Responsive, but it gives no plan and no time, and Marcus has a hard deadline."},
+          {"text": "On it. First I'll check the drop is real and not a tracking break from last week's releases or a change in bot filtering. Then I'll break it down by platform, channel and country. You'll have a first read by end of day tomorrow and a full answer before Thursday.", "rating": "best",
+           "feedback": "It checks data quality first (most sudden drops are tracking), lays out a breakdown plan, and sets times that work back from the board meeting."},
+          {"text": "Probably seasonality. It happens every November.", "rating": "weak",
+           "feedback": "A guess presented as an answer. If it's wrong, the board hears the wrong story."},
+          {"text": "I'll build a full attribution model. It'll take about three weeks.", "rating": "weak",
+           "feedback": "Too slow for the question being asked. Start with the simple breakdown that answers it by Thursday."}
+        ],
+        "takeaway": "When a metric suddenly moves, check the data is real first, then break it down by segment, on a timeline that meets the asker's deadline."
+      },
+      {
+        "skill": "Analytical rigor",
+        "email": {
+          "from": "Sofia Lindqvist", "to": "You", "subject": "Re: sign-up dip", "when": "Tuesday, 11:20 AM",
+          "body": "Breakdown's in: the whole drop is on Android, starting the day app version 5.2 shipped. Web and iOS are flat. What would you do next?"
+        },
+        "prompt": "What's your next step?",
+        "choices": [
+          {"text": "Compare the app's sign-up events with the backend's count of accounts created on Android. If accounts held steady, 5.2 broke the tracking, not sign-ups.", "rating": "best",
+           "feedback": "An independent source settles whether users or events went missing, and the two answers lead to very different fixes and board stories."},
+          {"text": "Tell Marcus that Android users are leaving.", "rating": "weak",
+           "feedback": "The data shows a drop in events, not why. Jumping to a story the board will repeat is risky."},
+          {"text": "Recommend rolling back Android 5.2.", "rating": "okay",
+           "feedback": "It might be right if the sign-up flow broke, but it's premature, and it isn't your call without evidence. Confirm which it is first."},
+          {"text": "Leave Android out of the report so the trend looks clean.", "rating": "weak",
+           "feedback": "That hides the most important finding."}
+        ],
+        "takeaway": "Before telling a story about a drop, check it against an independent source. Lost users and lost events need very different fixes."
+      },
+      {
+        "skill": "Experiment reading",
+        "email": {
+          "from": "Daniel Reyes", "to": "You", "subject": "New sign-up page: ship B?", "when": "Wednesday, 9:05 AM",
+          "body": "Test results: variant B converted 4.1% and A 3.8%, with 1,200 visitors each. That's an 8% lift! Can we ship B?"
+        },
+        "prompt": "What's your answer?",
+        "choices": [
+          {"text": "Yes. B is 8% better.", "rating": "weak",
+           "feedback": "With 1,200 visitors per arm, 3.8% against 4.1% is about 46 against 49 sign-ups. That's well within noise (z is about 0.4)."},
+          {"text": "A/B tests are unreliable at our size, so let's go with our gut.", "rating": "weak",
+           "feedback": "Small samples call for more careful reading, not none."},
+          {"text": "Let's run it another week and see.", "rating": "okay",
+           "feedback": "The right direction, but with no idea how many visitors you need, \"see\" turns into peeking until something looks significant."},
+          {"text": "Not as a proven win. 49 against 46 sign-ups is within noise, and the 95% interval for the difference spans zero. To detect a lift that small reliably we'd need about 65,000 visitors per arm. If B costs nothing and carries no risk we can ship it, but labeled as unproven, not as a win.", "rating": "best",
+           "feedback": "It quantifies the uncertainty, says what a reliable answer would take, and still gives a practical decision with an honest label."}
+        ],
+        "takeaway": "Read a test by its uncertainty, not its lift. Turn the percentages back into counts, estimate the sample size you'd need, and label results honestly."
+      },
+      {
+        "skill": "Integrity",
+        "email": {
+          "from": "Marcus Bell", "to": "You", "subject": "Board deck chart", "when": "Wednesday, 6:12 PM",
+          "body": "For the board, can you start the y-axis of the conversion chart at 3.5% so B's improvement pops?"
+        },
+        "prompt": "How do you respond?",
+        "choices": [
+          {"text": "Sure, will do.", "rating": "weak",
+           "feedback": "A truncated axis makes a 0.3-point difference that may be noise look like a big win. If the board acts on it, you and Marcus both lose credibility when it doesn't hold up."},
+          {"text": "I'd keep the axis honest. Cutting it at 3.5% makes noise look like a big win, and if the board plans around it, it'll come back on us. I can show both rates with their uncertainty bars and a line that we're running it to about 65,000 visitors each. That reads as rigorous, not weak.", "rating": "best",
+           "feedback": "Firm on integrity, explains the risk in Marcus's own interest, and offers a better chart. Saying no well means offering what you'd do instead."},
+          {"text": "I'll do it, but add a footnote that the axis is truncated.", "rating": "okay",
+           "feedback": "Better than nothing, but footnotes don't change what people see, and the chart still overstates the result."},
+          {"text": "No. That's misleading, and I'll raise it with HR.", "rating": "weak",
+           "feedback": "Escalating a first request about a chart is out of proportion. Talk to him first, explain, and offer an alternative."}
+        ],
+        "takeaway": "Push back with the reason and a better option that serves the person's real goal. The goal here is a credible board story."
+      }
+    ]
+  },
+  {
+    "id": "infra-cloud-bill",
+    "tracks": ["infra"],
+    "title": "The cloud bill and an access request",
+    "role": "DevOps / SRE",
+    "blurb": "The cloud bill jumped 70%, a teammate wants the admin password, and the cluster is two versions behind.",
+    "difficulty": "hard",
+    "cast": [
+      {"name": "Hannah Cole", "role": "Finance lead"},
+      {"name": "Kenji Watanabe", "role": "SRE lead"},
+      {"name": "Amara Osei", "role": "Senior backend engineer"},
+      {"name": "Priya Nair", "role": "Engineering manager"}
+    ],
+    "steps": [
+      {
+        "skill": "Cost investigation",
+        "email": {
+          "from": "Hannah Cole", "to": "You", "subject": "Cloud bill: $18k to $31k?", "when": "Monday, 9:30 AM",
+          "body": "Hi! Our cloud bill went from $18,000 to $31,000 last month. Can engineering explain it before our finance review on Friday?"
+        },
+        "prompt": "How do you reply to Hannah?",
+        "choices": [
+          {"text": "I'll ask every team to cut 20%.", "rating": "okay",
+           "feedback": "Action, but untargeted. You don't know yet where the money went, and a flat cut may hurt the wrong things."},
+          {"text": "I'll break the bill down by service and by cost tags, compare it with the month before, and find the biggest increases. You'll have the top three causes and options to cut them by Wednesday, ahead of Friday.", "rating": "best",
+           "feedback": "Data first, a clear method, a promise of the causes plus options, and a date that comes before her deadline."},
+          {"text": "Cloud costs grow with traffic; it's normal.", "rating": "weak",
+           "feedback": "A 70% jump in a month is rarely traffic alone. Brushing off Finance without looking costs credibility."},
+          {"text": "We could shut down staging to save money.", "rating": "weak",
+           "feedback": "That cuts something before you know where the money goes, and probably not the right thing."}
+        ],
+        "takeaway": "Answer a cost question with a breakdown, the top causes and options to cut each, before the asker's deadline."
+      },
+      {
+        "skill": "Technical fix",
+        "email": {
+          "from": "Kenji Watanabe", "to": "You", "subject": "Found the bill", "when": "Tuesday, 4:10 PM",
+          "body": "Most of it is two things. A log bucket grew to 90 TB because debug logging was left on after an incident. And the workers in private subnets pull container images through the NAT gateway, which charges per GB. What would you propose?"
+        },
+        "prompt": "What's your proposal?",
+        "choices": [
+          {"text": "Turn off debug logging, add a lifecycle rule that moves logs to cold storage after 30 days and deletes them after 90 (after checking how long we must keep them), and add a VPC endpoint or registry mirror so image pulls skip the NAT. Then a budget alert so we hear about the next jump within days.", "rating": "best",
+           "feedback": "It fixes both causes at the root, respects retention rules, and adds the alert that would have caught it in days instead of a month."},
+          {"text": "Delete the log bucket.", "rating": "weak",
+           "feedback": "Fast and cheap, but logs may be needed for audits or ongoing investigations, and you can't undo it."},
+          {"text": "Turn off debug logging and leave the rest.", "rating": "okay",
+           "feedback": "It stops the growth, but the 90 TB keeps costing money every month and the NAT charges stay."},
+          {"text": "Move to another cloud provider that's cheaper.", "rating": "weak",
+           "feedback": "A months-long migration to fix two configuration mistakes."}
+        ],
+        "takeaway": "Cost fixes that last remove the cause, follow retention rules and add an alert, so the next jump is caught within days."
+      },
+      {
+        "skill": "Security judgment",
+        "email": {
+          "from": "Amara Osei", "to": "You", "subject": "Quick favor: prod DB", "when": "Wednesday, 1:15 PM",
+          "body": "Hey! I need to look at one customer's data in production to debug their issue. Could you just send me the admin password? It'll take 10 minutes."
+        },
+        "prompt": "How do you respond?",
+        "choices": [
+          {"text": "Sure, here it is. Please don't share it.", "rating": "weak",
+           "feedback": "Shared admin credentials end up in chat logs, can't be revoked for just one person, and leave no audit trail of who did what."},
+          {"text": "You can use my login.", "rating": "weak",
+           "feedback": "Worse: anything Amara does is now recorded as you."},
+          {"text": "Happy to unblock you, but not with the admin password. I can grant you read-only access for today through the access request (I'll approve it right away), or we can run the query together on a call now. Which is easier?", "rating": "best",
+           "feedback": "It holds the line on least privilege and audit, and still solves her problem quickly with two concrete options."},
+          {"text": "No, that's against policy.", "rating": "okay",
+           "feedback": "The right answer, but unhelpful. People route around security that only says no."}
+        ],
+        "takeaway": "Say no to unsafe access by offering a safe way to get the same thing done just as quickly."
+      },
+      {
+        "skill": "Planning risky changes",
+        "email": {
+          "from": "Priya Nair", "to": "You", "subject": "Kubernetes upgrade", "when": "Thursday, 10:45 AM",
+          "body": "Our cluster is on Kubernetes 1.29 and support ends soon. Can you plan the upgrade to 1.31 for next week?"
+        },
+        "prompt": "What plan do you send?",
+        "choices": [
+          {"text": "Upgrade straight to 1.31 on Friday evening when traffic is low.", "rating": "weak",
+           "feedback": "Kubernetes upgrades one minor version at a time, and Friday evening means anything that breaks lands on whoever is on call for the weekend."},
+          {"text": "Do it in staging first, then production.", "rating": "okay",
+           "feedback": "The right shape, but it leaves out the version-by-version path, the deprecated API check and the rollback plan."},
+          {"text": "Upgrade one minor at a time (1.30, then 1.31). In staging first, scan for removed APIs (with a tool like pluto or kubent) and fix the manifests, then upgrade the control plane and then the node pools, on a weekday morning with a rollback plan and a note to every team.", "rating": "best",
+           "feedback": "It follows how Kubernetes actually upgrades, catches the most common breakage (removed APIs) before production, and plans the timing, the rollback and who needs to know."},
+          {"text": "Skip it. It works, and upgrades are risky.", "rating": "weak",
+           "feedback": "Running unsupported versions means no security patches, and every year you skip makes the next upgrade harder."}
+        ],
+        "takeaway": "A plan for a risky change covers the path (one step at a time), the pre-checks, the timing, the rollback, and who needs to know."
+      }
+    ]
+  },
+  {
+    "id": "mobile-release",
+    "tracks": ["mobile"],
+    "title": "Release 5.2 is crashing",
+    "role": "Mobile engineer",
+    "blurb": "Crash-free sessions fall after your feature ships to 20% of users. Stop it, fix it, answer a 1-star review, and make sure it can't happen again.",
+    "difficulty": "medium",
+    "cast": [
+      {"name": "Omar Haddad", "role": "Mobile lead"},
+      {"name": "Grace Mwangi", "role": "Head of customer success"},
+      {"name": "Priya Nair", "role": "Engineering manager"}
+    ],
+    "steps": [
+      {
+        "skill": "Triage",
+        "email": {
+          "from": "Omar Haddad", "to": "You", "subject": "5.2 crash rate", "when": "Tuesday, 9:02 AM",
+          "body": "Crash-free sessions on iOS fell from 99.8% to 97.1% since 5.2 reached 20% of users. Your saved-searches feature is in this release. Can you look?"
+        },
+        "prompt": "What do you do?",
+        "choices": [
+          {"text": "Pause the staged rollout, open the top crash in the crash reporter (symbolicated), and check whether it's in saved searches. I'll post what I find in the release channel within 30 minutes.", "rating": "best",
+           "feedback": "Pausing stops the damage from growing (you can't recall a shipped binary). Then go to the evidence, and say when the team will hear back."},
+          {"text": "Keep rolling out. 97% is still high.", "rating": "weak",
+           "feedback": "A drop from 99.8% to 97.1% means about 15 times as many crashing sessions. At 100% rollout that's a lot of users."},
+          {"text": "It can't be saved searches. It passed QA.", "rating": "weak",
+           "feedback": "QA can't cover every real user's data. Look before you rule yourself out."},
+          {"text": "I'll start looking now and let you know.", "rating": "okay",
+           "feedback": "Willing, but the rollout keeps going while you look, and Omar gets no time for an update."}
+        ],
+        "takeaway": "With a bad release, stop the rollout first, go to the crash reports, and give a time for your next update."
+      },
+      {
+        "skill": "Root cause",
+        "email": {
+          "from": "Omar Haddad", "to": "You", "subject": "Re: 5.2 crash rate", "when": "Tuesday, 9:40 AM",
+          "body": "Top crash: force-unwrapping a nil `salaryRange` in SavedSearchCell. It only happens for searches saved before 5.2."
+        },
+        "prompt": "What's your fix?",
+        "choices": [
+          {"text": "Ask affected users to delete and re-save their searches.", "rating": "weak",
+           "feedback": "That pushes your bug onto users, and most of them will just see a crash and leave."},
+          {"text": "Wrap the cell code in a do/catch.", "rating": "weak",
+           "feedback": "A force unwrap of nil is a runtime trap in Swift, not a thrown error, so catch can't stop it."},
+          {"text": "Change it to `salaryRange ?? .unknown` and ship.", "rating": "okay",
+           "feedback": "It fixes the crash, but with no test for old data, and no way to turn the feature off before the fix reaches users."},
+          {"text": "Older saved searches don't have the new field. I'll make it optional with a sensible default, add a test that loads a search saved by 5.1, and ship 5.2.1. Meanwhile, the remote flag can turn saved searches off for 5.2 users.", "rating": "best",
+           "feedback": "Names the cause (old data without the new field), fixes it safely, adds the test that would have caught it, and limits the damage until the fix reaches users."}
+        ],
+        "takeaway": "Fix the cause, add the test that would have caught it, and use a flag to protect users until the fix reaches them."
+      },
+      {
+        "skill": "Customer empathy",
+        "email": {
+          "from": "Grace Mwangi", "to": "You", "subject": "1-star review", "when": "Tuesday, 2:30 PM",
+          "body": "We got a 1-star review: \"App crashes every time I open saved searches!!\" Want me to reply? What should I say?"
+        },
+        "prompt": "How do you help Grace?",
+        "choices": [
+          {"text": "Let's ignore it. It'll get buried.", "rating": "weak",
+           "feedback": "Public reviews are read by future users. A short, honest reply shows the app is cared for."},
+          {"text": "Ask them to update their review once it's fixed.", "rating": "weak",
+           "feedback": "Asking for a better review before you've fixed anything comes across as caring about the rating, not the user."},
+          {"text": "Yes, please. Something like: \"Sorry about this! A bug in version 5.2 crashed the app for searches saved before the update. Version 5.2.1 fixes it and is rolling out now, and your saved searches are safe.\" I'll tell you the moment 5.2.1 is live.", "rating": "best",
+           "feedback": "It apologizes, explains in plain words, says the fix is on the way and their data is safe, and keeps Grace in the loop on timing."},
+          {"text": "Reply that it's fixed.", "rating": "okay",
+           "feedback": "Quick, but not true yet. If they open the app before 5.2.1 arrives, it crashes again."}
+        ],
+        "takeaway": "Customer replies should be honest about timing: apologize, explain in plain words, and say what's fixed and when."
+      },
+      {
+        "skill": "Preventing repeats",
+        "email": {
+          "from": "Priya Nair", "to": "You", "subject": "After 5.2", "when": "Thursday, 11:00 AM",
+          "body": "Thanks for the quick fix. What should we change so this doesn't happen again?"
+        },
+        "prompt": "What do you propose?",
+        "choices": [
+          {"text": "We'll be more careful next time.", "rating": "weak",
+           "feedback": "Promising to be careful is a hope, not a change. Next time someone will be just as careful and still miss it."},
+          {"text": "Add more manual QA before each release.", "rating": "okay",
+           "feedback": "It might help, but it's slow, and manual testers rarely have months-old user data on their devices."},
+          {"text": "Stop staged rollouts so problems don't sit at 20% for a while.", "rating": "weak",
+           "feedback": "Backwards. The staged rollout is why only 20% of users were hit."},
+          {"text": "Three changes: tests that load data saved by older app versions, a lint rule against force unwraps in new code, and new features behind remote flags so we can turn them off without a release.", "rating": "best",
+           "feedback": "Each one targets a specific gap that let this through, and none of them depends on people being more careful."}
+        ],
+        "takeaway": "Prevent repeats by fixing the system that let the bug through, not by promising to be more careful."
+      }
+    ]
+  },
+  {
+    "id": "product-two-asks",
+    "tracks": ["product"],
+    "title": "Two asks, one sprint",
+    "role": "Product manager",
+    "blurb": "Sales wants SSO for a big deal, support has 120 tickets about exports, and engineering just tripled the estimate.",
+    "difficulty": "medium",
+    "cast": [
+      {"name": "Marcus Bell", "role": "VP of Growth"},
+      {"name": "Grace Mwangi", "role": "Head of customer success"},
+      {"name": "Amara Osei", "role": "Tech lead"}
+    ],
+    "steps": [
+      {
+        "skill": "Discovery",
+        "email": {
+          "from": "Marcus Bell", "to": "You", "subject": "SSO for Halden Group", "when": "Monday, 10:10 AM",
+          "body": "Halden Group, our biggest prospect, says they'll sign if we have SSO. Can I promise it in two weeks?"
+        },
+        "prompt": "How do you reply?",
+        "choices": [
+          {"text": "Yes, let's win the deal.", "rating": "weak",
+           "feedback": "A promise before anyone knows the scope or the cost is how roadmaps and trust break."},
+          {"text": "No. It's not on the roadmap.", "rating": "weak",
+           "feedback": "A roadmap is a plan, not a contract. A big deal is worth looking at properly."},
+          {"text": "Let me find out what they need first. I'll check with the engineers and get back to you.", "rating": "okay",
+           "feedback": "Good restraint, but vague. Say what you need to learn and when Marcus will hear back."},
+          {"text": "Possibly. Before we promise: which SSO do they need (SAML with their identity provider, or Google sign-in), by when really, and how big is the deal? I'll get an estimate from Amara today and come back tomorrow with options and what each would cost us on the roadmap.", "rating": "best",
+           "feedback": "It turns the request into the questions that decide it, brings in engineering, and promises options and a trade-off rather than a yes or a no."}
+        ],
+        "takeaway": "Turn a big ask into the questions that decide it, then come back with options and their costs, not a yes or a no."
+      },
+      {
+        "skill": "Prioritization",
+        "email": {
+          "from": "Grace Mwangi", "to": "You", "subject": "Exports: our top ticket", "when": "Monday, 3:40 PM",
+          "body": "Heads up: \"How do I export my applications?\" was our top support ticket this month, with 120 tickets. Customers are frustrated. Any chance this sprint? I know SSO is on the table too."
+        },
+        "prompt": "The team has room for one of them this sprint. How do you decide?",
+        "choices": [
+          {"text": "Whoever asked first.", "rating": "weak",
+           "feedback": "Arrival order has nothing to do with value."},
+          {"text": "Compare them on the same terms: reach, impact on this quarter's goal, confidence and effort. SSO's revenue is one deal and uncertain; exports affect hundreds of users and cost support time every week. Then check for a cheap win: if exports exist but are hard to find, a visible button might take a day and leave room for SSO.", "rating": "best",
+           "feedback": "A shared yardstick, tied to the goal, plus looking for the cheap version of each ask. Often you don't have to pick one."},
+          {"text": "Let the CEO decide.", "rating": "okay",
+           "feedback": "Sometimes it does go up, but a PM is expected to bring a recommendation with reasons, not just pass the question on."},
+          {"text": "SSO, since revenue beats support tickets.", "rating": "weak",
+           "feedback": "Possibly, but deciding by category skips the numbers. Ticket volume is also churn risk and support cost."}
+        ],
+        "takeaway": "Prioritize with one yardstick tied to the goal, and look for the cheap version of each ask before choosing."
+      },
+      {
+        "skill": "Bad news early",
+        "email": {
+          "from": "Amara Osei", "to": "You", "subject": "SSO estimate", "when": "Wednesday, 11:25 AM",
+          "body": "We dug in: SAML SSO is bigger than we thought, about three sprints, not one. Google sign-in alone is about four days."
+        },
+        "prompt": "What do you do with this?",
+        "choices": [
+          {"text": "Ask the team to work harder to fit it into one sprint.", "rating": "weak",
+           "feedback": "Squeezing a three-sprint estimate into one gets you cut corners, burnout and a late feature anyway."},
+          {"text": "Tell Marcus and Halden today. Offer Google sign-in in about a week if it meets their need, and SAML on a real date (three sprints out). Update the roadmap so everyone sees the trade-off.", "rating": "best",
+           "feedback": "Bad news shared early, a smaller version offered, a real date for the full thing, and the trade-off made visible."},
+          {"text": "Wait until the end of the sprint to tell anyone, in case it goes faster.", "rating": "weak",
+           "feedback": "Bad news only gets worse with time, and Marcus may be promising dates to Halden right now."},
+          {"text": "Tell Marcus it'll take three sprints.", "rating": "okay",
+           "feedback": "Honest and on time, but it leaves out the four-day option that might save the deal."}
+        ],
+        "takeaway": "Share bad news early, and bring a smaller version and a real date with it."
+      },
+      {
+        "skill": "Measuring outcomes",
+        "email": {
+          "from": "Grace Mwangi", "to": "You", "subject": "Exports button: one month in", "when": "Five weeks later",
+          "body": "Export tickets fell from 120 to 48 since the new button shipped. Only 5% of users have clicked it, though. Was it worth it? Leadership is asking."
+        },
+        "prompt": "How do you write the update?",
+        "choices": [
+          {"text": "Only 5% use it, so it didn't work.", "rating": "weak",
+           "feedback": "You're judging it by the wrong metric. The goal was fewer tickets, not usage by everyone."},
+          {"text": "It was a big success!", "rating": "okay",
+           "feedback": "Probably true, but leadership wants the evidence and the next step, not adjectives."},
+          {"text": "Measure against the goal we set: export tickets fell 60%, about 72 fewer a month, for two days of work. 5% usage is about what we'd expect, since only some users need exports. Next, I'll look at the 48 tickets that remain to see if there's a second cause.", "rating": "best",
+           "feedback": "Judged against the goal it was built for, with the cost and a sensible read of the usage number, plus what to learn next. That's an outcome update."},
+          {"text": "Let's add more export formats to increase usage.", "rating": "weak",
+           "feedback": "That's more work aimed at the wrong number, and the update doesn't answer whether it was worth it."}
+        ],
+        "takeaway": "Judge a launch against the goal you set for it, and include the cost and what you'll learn next."
+      }
+    ]
+  },
+  {
+    "id": "general-first-month",
+    "tracks": ["general", "backend", "frontend", "fullstack", "data", "infra", "mobile", "product"],
+    "title": "Your first month, any role",
+    "role": "Any role",
+    "blurb": "Setting your first goals, a teammate upset about credit, two urgent asks at once, and a mistake in front of a client.",
+    "difficulty": "easy",
+    "cast": [
+      {"name": "Ruth Adebayo", "role": "Your manager"},
+      {"name": "Tom Fischer", "role": "A teammate"},
+      {"name": "Elena Park", "role": "A client"}
+    ],
+    "steps": [
+      {
+        "skill": "Setting goals",
+        "email": {
+          "from": "Ruth Adebayo", "to": "You", "subject": "Your first 90 days", "when": "Week 1, Tuesday",
+          "body": "Welcome aboard! Let's set your goals for the first 90 days. Could you send me what you think they should be before our 1:1 on Friday?"
+        },
+        "prompt": "What do you send Ruth?",
+        "choices": [
+          {"text": "Whatever you think is best. I'm flexible!", "rating": "weak",
+           "feedback": "She asked for your view. Handing it back looks passive, and you lose the chance to shape your own work."},
+          {"text": "A draft with three goals tied to the team's priorities: learn our systems and ship a first small project by day 30, own a larger piece of work by day 60, and improve one process by day 90. Each has a way to tell it's done, plus a short list of questions about what she'd change.", "rating": "best",
+           "feedback": "A concrete draft makes the 1:1 productive, ties your goals to the team's, says how to tell they're done, and invites her input."},
+          {"text": "Learn as much as possible and be a great team player.", "rating": "okay",
+           "feedback": "A good spirit, but you can't tell at day 90 whether it happened."},
+          {"text": "Get promoted within six months.", "rating": "weak",
+           "feedback": "Ambition is fine, but a goal about yourself rather than the work doesn't tell anyone what you'll do."}
+        ],
+        "takeaway": "Bring a draft with goals tied to the team and a way to tell each one is done, and ask for input on it."
+      },
+      {
+        "skill": "Handling conflict",
+        "email": {
+          "from": "Tom Fischer", "to": "You", "subject": "This morning", "when": "Week 2, Wednesday",
+          "body": "Hey. In this morning's team meeting you presented the onboarding report as your work. I did about half of it. Not great."
+        },
+        "prompt": "How do you reply to Tom?",
+        "choices": [
+          {"text": "You're right, and I'm sorry. I should have said we did it together. I'll send a note to the team today crediting your part, and next time let's present it together. Want to grab a coffee?", "rating": "best",
+           "feedback": "No excuses. It fixes the record where the harm happened (with the team) and changes how you'll work together, all in person-to-person tone."},
+          {"text": "I didn't mean to. You're being a bit sensitive.", "rating": "weak",
+           "feedback": "Dismissing how someone feels turns a fixable mistake into a lasting conflict."},
+          {"text": "Sorry about that! It won't happen again.", "rating": "okay",
+           "feedback": "A sincere apology, but the team still believes the wrong thing. Fix the record too."},
+          {"text": "Forward his email to your manager so she knows what happened.", "rating": "weak",
+           "feedback": "Escalating a peer issue before talking to the peer damages trust. Deal with it directly first."}
+        ],
+        "takeaway": "When you're in the wrong, apologize without excuses, fix it where the harm happened, and change how you work."
+      },
+      {
+        "skill": "Competing priorities",
+        "email": {
+          "from": "Ruth Adebayo", "to": "You", "subject": "Need the client deck by 3", "when": "Week 3, Thursday, 10:00 AM",
+          "body": "Can you finish the client deck by 3 p.m. today? Elena's meeting got moved up."
+        },
+        "prompt": "You also promised a senior colleague an analysis by 2 p.m. What do you do?",
+        "choices": [
+          {"text": "Say yes and work through lunch to do both.", "rating": "okay",
+           "feedback": "Sometimes that works, but if neither is done well, two people are let down. Make the trade-off visible first."},
+          {"text": "Reply that you can have the deck by 3, but that means the analysis you promised for 2 would move to tomorrow morning. Ask which matters more today, or whether someone else could take one of them.", "rating": "best",
+           "feedback": "It makes the conflict visible to the person who sets your priorities and offers options instead of quietly dropping something."},
+          {"text": "Do the deck and say nothing about the analysis.", "rating": "weak",
+           "feedback": "The colleague finds out at 2 p.m. that it isn't coming. Missing a promise without warning hurts more than the delay itself."},
+          {"text": "Tell Ruth you're too busy.", "rating": "weak",
+           "feedback": "That gives her no information or options, and the client meeting still needs a deck."}
+        ],
+        "takeaway": "When two asks collide, tell the people involved early and offer a choice. Don't quietly drop one."
+      },
+      {
+        "skill": "Owning a mistake",
+        "email": {
+          "from": "Elena Park", "to": "You", "cc": ["Ruth Adebayo"], "subject": "Which price is right?", "when": "Week 4, Monday",
+          "body": "Hi, your quote from Friday says $4,000 a year, but your website lists the same plan at $4,800. Which is correct?"
+        },
+        "prompt": "You check: the website is right, and your quote had a typo. How do you reply?",
+        "choices": [
+          {"text": "The website must be out of date. We'll honor $4,000.", "rating": "weak",
+           "feedback": "It isn't true, and you don't have the authority to give a discount."},
+          {"text": "The correct price is $4,800, sorry.", "rating": "okay",
+           "feedback": "True, but abrupt. It doesn't own the mistake or deal with the trust you've lost."},
+          {"text": "Delay replying until Ruth tells you what to say.", "rating": "weak",
+           "feedback": "Ruth is copied and sees you go quiet. It's better to own it and loop her in on the one decision that is hers."},
+          {"text": "Thanks for catching that, and I'm sorry: my quote had a typo, and the plan is $4,800 a year, as the website says. I'm checking with Ruth whether we can do anything about the confusion, and I'll send a corrected quote today.", "rating": "best",
+           "feedback": "It owns the mistake plainly, gives the correct number, brings in the person who can decide on a gesture, and sets a time for the fix."}
+        ],
+        "takeaway": "Own the mistake plainly, give the correct facts, bring in whoever can decide what's beyond you, and set a time for the fix."
+      }
+    ]
+  }
+]
