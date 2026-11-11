@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.1](https://github.com/wera-jobs/Wera/compare/wera-v0.18.0...wera-v0.18.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ai:** read model replies that close their JSON too early ([48fc853](https://github.com/wera-jobs/Wera/commit/48fc85393b82428c84424c883ca72c545914d59a))
+* **resume:** keep tailoring edits keyed b:ID and retry an unreadable reply ([e0ceb9f](https://github.com/wera-jobs/Wera/commit/e0ceb9f44e84c2f5633729ebbb57cf4d59133e77))
+
 ## [0.18.0](https://github.com/wera-jobs/Wera/compare/wera-v0.17.0...wera-v0.18.0) (2026-11-06)
 
 
