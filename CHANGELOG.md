@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/wera-jobs/Wera/compare/wera-v0.20.0...wera-v0.20.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps:** bump excelize, x/net and x/crypto for security fixes ([e3d90b5](https://github.com/wera-jobs/Wera/commit/e3d90b5d41d0a99d300ba87fb2b3d0b7f1c5ffd2))
+
 ## [0.20.0](https://github.com/wera-jobs/Wera/compare/wera-v0.19.0...wera-v0.20.0) (2026-11-11)
 
 
