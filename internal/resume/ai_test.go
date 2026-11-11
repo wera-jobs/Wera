@@ -57,6 +57,33 @@ func TestApplyTailoringEnforcesTheRules(t *testing.T) {
 	}
 }
 
+// The model's real slips (2026-11-10): ids kept as the prompt writes them ("b:ID", "[g:ID]"),
+// and the object closed before its last keys.
+func TestApplyTailoringReadsTheModelsSlips(t *testing.T) {
+	base := sample(t)
+	b0 := base.Sections[2].Entries[0].Bullets[0]
+	intern := base.Sections[2].Entries[1].Bullets[0]
+	skills := base.Sections[1].Skills[1]
+	reply := fmt.Sprintf(`{"bullets": {"b:%s": "Cut deploy time by 50%% across 12 services using GitHub Actions"}, "least_relevant": ["b:%s"],
+	  "skills": {"[g:%s]": "Terraform, Kubernetes, Docker, AWS (S3, EC2), CI/CD (GitHub Actions)"}}, "notes": ["Led with deploys"]}`, b0.ID, intern.ID, skills.ID)
+	tl, err := ApplyTailoring(base, reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tl.Resume.Sections[2].Entries[0].Bullets[0].Text; got != "Cut deploy time by 50% across 12 services using GitHub Actions" {
+		t.Errorf("a rewrite keyed b:ID was dropped: %q", got)
+	}
+	if got := tl.Resume.Sections[1].Skills[1].Items; !strings.HasPrefix(got, "Terraform") {
+		t.Errorf("a reorder keyed [g:ID] was dropped: %q", got)
+	}
+	if len(tl.LeastRelevant) != 1 || tl.LeastRelevant[0] != intern.ID {
+		t.Errorf("least relevant: %v", tl.LeastRelevant)
+	}
+	if len(tl.Notes) != 1 {
+		t.Errorf("the notes after the early brace were lost: %v", tl.Notes)
+	}
+}
+
 func TestParseImportFlagsRewordedLines(t *testing.T) {
 	src := "Ada Lovelace\nada@example.com\nEXPERIENCE\nEngines Inc, SRE\n- Cut deploy time by 50% with GitHub Actions."
 	reply := `{"name":"Ada Lovelace","email":"ada@example.com","links":[{"label":"github.com/ada","url":"github.com/ada"}],

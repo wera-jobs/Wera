@@ -52,7 +52,7 @@ func loose(s string) string {
 // the source text (the model reworded them) are listed in warnings.
 func ParseImport(reply, source string) (*Resume, []string, error) {
 	var r Resume
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &r); err != nil {
+	if err := scoring.DecodeJSON(reply, &r); err != nil {
 		return nil, nil, fmt.Errorf("unreadable resume: %w", err)
 	}
 	for i := range r.Links {
@@ -202,8 +202,16 @@ func ApplyTailoring(base *Resume, reply string) (*Tailored, error) {
 		Skills        map[string]string `json:"skills"`
 		Notes         []string          `json:"notes"`
 	}
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &t); err != nil {
+	if err := scoring.DecodeJSON(reply, &t); err != nil {
 		return nil, fmt.Errorf("unreadable tailoring: %w", err)
+	}
+	// The resume lists ids as "[b:ID]": the reply often keeps the "b:" (about half of them on 2026-11-10).
+	t.Bullets, t.Skills = bareKeys(t.Bullets), bareKeys(t.Skills)
+	for i, id := range t.LeastRelevant {
+		t.LeastRelevant[i] = bareID(id)
+	}
+	for i, id := range t.Hide {
+		t.Hide[i] = bareID(id)
 	}
 	raw, _ := json.Marshal(base)
 	var r Resume
@@ -267,6 +275,23 @@ func ApplyTailoring(base *Resume, reply string) (*Tailored, error) {
 	return &Tailored{Resume: &r, Notes: notes, LeastRelevant: append(t.LeastRelevant, t.Hide...)}, nil
 }
 
+// bareID is an id as the resume holds it: "[b:ab12]" and "b:ab12" are "ab12".
+func bareID(id string) string {
+	id = strings.Trim(strings.TrimSpace(id), "[]")
+	if len(id) > 2 && (id[:2] == "b:" || id[:2] == "g:") {
+		id = id[2:]
+	}
+	return strings.TrimSpace(id)
+}
+
+func bareKeys(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[bareID(k)] = v
+	}
+	return out
+}
+
 func cleanDashes(s string) string {
 	return strings.NewReplacer(" — ", ", ", "—", ", ", " – ", ", ").Replace(s)
 }
@@ -309,7 +334,7 @@ func ParseBulletSuggestions(original, reply string) ([]string, error) {
 	var out struct {
 		Suggestions []string `json:"suggestions"`
 	}
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &out); err != nil {
+	if err := scoring.DecodeJSON(reply, &out); err != nil {
 		return nil, fmt.Errorf("unreadable suggestions: %w", err)
 	}
 	orig := numbers(original)

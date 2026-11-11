@@ -2,7 +2,6 @@ package scoring
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -69,7 +68,7 @@ func ParseQuick(reply string, n int) ([]Ratings, error) {
 	var out struct {
 		Grades [][]int `json:"grades"`
 	}
-	if err := json.Unmarshal([]byte(StripFences(reply)), &out); err != nil {
+	if err := DecodeJSON(reply, &out); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSchema, err)
 	}
 	if len(out.Grades) != n {

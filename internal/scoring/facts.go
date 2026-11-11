@@ -1,7 +1,6 @@
 package scoring
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -64,7 +63,7 @@ func BuildFactsMessages(j Job) []Message {
 // model can be talked into inventing one), and lists and text are capped.
 func ParseFacts(reply, description string) (*Facts, error) {
 	var f Facts
-	if err := json.Unmarshal([]byte(StripFences(reply)), &f); err != nil {
+	if err := DecodeJSON(reply, &f); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSchema, err)
 	}
 	if !seniority[f.Seniority] {
@@ -170,7 +169,7 @@ func BuildFitMessages(profile []byte, card string) []Message {
 // ParseFit validates a fit reply (call Finish once the skills are known).
 func ParseFit(reply string) (*Fit, error) {
 	var f Fit
-	if err := json.Unmarshal([]byte(StripFences(reply)), &f); err != nil {
+	if err := DecodeJSON(reply, &f); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSchema, err)
 	}
 	if f.Ratings == nil || !f.Ratings.Valid() {

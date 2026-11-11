@@ -4,7 +4,6 @@
 package moderation
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -130,7 +129,7 @@ var knownCategories = map[string]bool{
 // caller refuses to publish); a rejection without a reason gets one.
 func ParseVerdict(reply string) (Verdict, error) {
 	var v Verdict
-	if err := json.Unmarshal([]byte(scoring.StripFences(reply)), &v); err != nil {
+	if err := scoring.DecodeJSON(reply, &v); err != nil {
 		return Verdict{}, fmt.Errorf("unreadable moderation verdict: %w", err)
 	}
 	cats := []string{}
