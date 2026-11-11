@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0](https://github.com/wera-jobs/Wera/compare/wera-v0.18.1...wera-v0.19.0) (2026-11-11)
+
+
+### Features
+
+* **analytics:** site traffic without cookies, and API request counts ([cde0516](https://github.com/wera-jobs/Wera/commit/cde0516d1f3a41e5a8b64a7bd9fd7f82c775b34c))
+
+
+### Bug Fixes
+
+* **deps:** build with Go 1.27.4 for the net/http crash fix ([59502dc](https://github.com/wera-jobs/Wera/commit/59502dc4feeb303591475185db059aeec3a2656a))
+
 ## [0.18.1](https://github.com/wera-jobs/Wera/compare/wera-v0.18.0...wera-v0.18.1) (2026-11-11)
 
 
