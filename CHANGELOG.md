@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.0](https://github.com/wera-jobs/Wera/compare/wera-v0.19.0...wera-v0.20.0) (2026-11-11)
+
+
+### Features
+
+* **interview:** role tracks, stack tags and workplace email simulations ([082d7e1](https://github.com/wera-jobs/Wera/commit/082d7e125f19f8e90f1fd08c3e872d88214910a9))
+
+
+### Documentation
+
+* interview tracks and simulations ([3ddeeb5](https://github.com/wera-jobs/Wera/commit/3ddeeb596745451ce8de8eda05acab3e7233d49f))
+
 ## [0.19.0](https://github.com/wera-jobs/Wera/compare/wera-v0.18.1...wera-v0.19.0) (2026-11-11)
 
 
