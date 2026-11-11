@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -90,6 +91,13 @@ type Server struct {
 	commentLimit *auth.Limiter
 	extAILimit   *auth.Limiter
 	previewLimit *auth.Limiter
+	beaconLimit  *auth.Limiter
+
+	// Site analytics (analytics.go): today's visitor salt and the request counter.
+	saltMu   sync.Mutex
+	salt     []byte
+	saltDay  string
+	requests requestCounter
 
 	// Resumes renders resume documents (nil-safe: unavailable without typst).
 	Resumes *resume.Renderer
@@ -99,6 +107,7 @@ type Server struct {
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	r.Use(s.countRequests)
 	r.Use(securityHeaders)
 	r.Use(s.cors)
 
@@ -121,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	s.commentLimit = auth.NewLimiter(30, time.Hour)
 	s.extAILimit = auth.NewLimiter(120, time.Hour)
 	s.previewLimit = auth.NewLimiter(900, time.Hour)
+	s.beaconLimit = auth.NewLimiter(600, time.Hour)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
 
@@ -131,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/auth/logout", s.logout)
 		r.Get("/auth/config", s.authConfig)
 		r.Get("/public/stats", s.publicStats)
+		r.Post("/page-seen", s.pageSeen)
 		r.Post("/auth/verify-email", s.verifyEmail)
 		r.Post("/auth/password/forgot", s.forgotPassword)
 		r.Post("/auth/password/reset", s.resetPassword)
@@ -248,6 +259,7 @@ func (s *Server) Handler() http.Handler {
 				r.Get("/runs", s.runs)
 				r.Post("/runs", s.adminTriggerRun)
 				r.Get("/usage", s.usage)
+				r.Get("/traffic", s.adminTraffic)
 				r.Get("/companies", s.companies)
 				r.Get("/content", s.adminContent)
 				r.Put("/content/{kind}/{id}/status", s.setContentStatus)
