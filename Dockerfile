@@ -3,7 +3,7 @@
 # can ship poppler's pdftotext (reading uploaded resumes) and typst
 # (rendering resumes). Secrets (AI_API_KEY) come from the environment
 # at runtime.
-FROM golang:1.27.3-alpine AS build
+FROM golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
