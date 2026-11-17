@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.20.3](https://github.com/wera-jobs/Wera/compare/wera-v0.20.2...wera-v0.20.3) (2026-11-17)
+
+
+### Performance
+
+* **api:** queue matching after profile saves beyond MATCH_CONCURRENCY ([4d6c1ec](https://github.com/wera-jobs/Wera/commit/4d6c1ec069595364ee65d4efeff7bfa74f92b096))
+* **pipeline:** match users concurrently ([60e73f3](https://github.com/wera-jobs/Wera/commit/60e73f3b5d899b16509fcff1d4ff7ef4040d4b54))
+* **ranking:** read only the postings TF-IDF needs and write only changed estimates ([34cc0f6](https://github.com/wera-jobs/Wera/commit/34cc0f6f322b432e088b385077f6888df0516785))
+* **scoring:** cap shared facts per user per run ([c9755c9](https://github.com/wera-jobs/Wera/commit/c9755c9a867f2ebbc0b03c7543341a197ab57002))
+
+
+### Documentation
+
+* **env:** document FACTS_PER_RUN and MATCH_CONCURRENCY ([ae50ec5](https://github.com/wera-jobs/Wera/commit/ae50ec5e14c1c4ee35a9c65fc1e43ef01b525913))
+
 ## [0.20.2](https://github.com/wera-jobs/Wera/compare/wera-v0.20.1...wera-v0.20.2) (2026-11-17)
 
 
