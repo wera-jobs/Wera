@@ -191,6 +191,24 @@ func TestRenderPDFAndSVG(t *testing.T) {
 	}
 }
 
+// A link with a label and no address (as an import or a half-typed link
+// leaves it) renders as plain text instead of failing the whole preview.
+func TestRenderLinkWithoutAddress(t *testing.T) {
+	rd := renderer(t)
+	r := sample(t)
+	r.Links = append(r.Links, Link{Label: "Portfolio"}, Link{})
+	if err := r.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	pages, err := rd.SVG(context.Background(), r, DefaultLayout)
+	if err != nil || len(pages) == 0 {
+		t.Fatalf("svg: %v", err)
+	}
+	if tex := r.ExportTeX(DefaultLayout); strings.Contains(tex, `\href{}`) || !strings.Contains(tex, "Portfolio") {
+		t.Errorf("tex header: %s", tex[:min(len(tex), 400)])
+	}
+}
+
 func TestFitToOnePage(t *testing.T) {
 	rd := renderer(t)
 	ctx := context.Background()

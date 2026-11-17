@@ -106,7 +106,12 @@ func (r *Resume) TeXBody() string {
 		parts = append(parts, esc(r.Location))
 	}
 	for _, l := range r.Links {
-		parts = append(parts, href(l.URL, l.Label))
+		switch {
+		case l.URL != "":
+			parts = append(parts, href(l.URL, l.Label))
+		case l.Label != "":
+			parts = append(parts, esc(l.Label))
+		}
 	}
 	fmt.Fprintf(&b, "\\resumeHeader{%s}{%s}\n  {%s}\n", esc(r.Name), esc(r.Headline), strings.Join(parts, " \\contactSep\n   "))
 
