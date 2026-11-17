@@ -55,11 +55,22 @@ func ParseImport(reply, source string) (*Resume, []string, error) {
 	if err := scoring.DecodeJSON(reply, &r); err != nil {
 		return nil, nil, fmt.Errorf("unreadable resume: %w", err)
 	}
-	for i := range r.Links {
-		if u := r.Links[i].URL; u != "" && !strings.Contains(u, "://") && !strings.HasPrefix(u, "mailto:") {
-			r.Links[i].URL = "https://" + u
+	links := r.Links[:0]
+	for _, l := range r.Links {
+		l.Label, l.URL = strings.TrimSpace(l.Label), strings.TrimSpace(l.URL)
+		// The model sometimes gives only the shown text, e.g. "linkedin.com/in/ada".
+		if l.URL == "" && looksLikeAddress(l.Label) {
+			l.URL = l.Label
 		}
+		if l.URL == "" && l.Label == "" {
+			continue
+		}
+		if l.URL != "" && !strings.Contains(l.URL, "://") && !strings.HasPrefix(l.URL, "mailto:") {
+			l.URL = "https://" + l.URL
+		}
+		links = append(links, l)
 	}
+	r.Links = links
 	src := loose(source)
 	var warnings []string
 	for _, s := range r.Sections {
@@ -363,4 +374,15 @@ func cutTo(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// looksLikeAddress reports whether s reads as a web address without a
+// scheme, such as "github.com/ada" or "ada.dev".
+func looksLikeAddress(s string) bool {
+	if s == "" || strings.ContainsAny(s, " \t@") {
+		return false
+	}
+	host, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(s, "https://"), "http://"), "/")
+	dot := strings.LastIndex(host, ".")
+	return dot > 0 && dot < len(host)-2
 }

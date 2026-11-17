@@ -101,6 +101,28 @@ func TestParseImportFlagsRewordedLines(t *testing.T) {
 	}
 }
 
+func TestParseImportMendsLinksWithoutAddress(t *testing.T) {
+	reply := `{"name":"Ada","links":[{"label":"linkedin.com/in/ada","url":""},{"label":"Portfolio","url":""},{"label":"","url":""},{"label":"ada.dev","url":"ada.dev"}]}`
+	r, _, err := ParseImport(reply, "Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Link{{"linkedin.com/in/ada", "https://linkedin.com/in/ada"}, {"Portfolio", ""}, {"ada.dev", "https://ada.dev"}}
+	if len(r.Links) != len(want) {
+		t.Fatalf("links: %+v", r.Links)
+	}
+	for i, l := range want {
+		if r.Links[i] != l {
+			t.Errorf("link %d: got %+v, want %+v", i, r.Links[i], l)
+		}
+	}
+	for s, want := range map[string]bool{"github.com/ada": true, "https://x.io": true, "Portfolio": false, "a@b.com": false, "my site": false, "x.": false} {
+		if looksLikeAddress(s) != want {
+			t.Errorf("looksLikeAddress(%q) = %v", s, !want)
+		}
+	}
+}
+
 func TestKeywordPriorityKeepsRelevantBullets(t *testing.T) {
 	s := Section{Kind: KindEntries}
 	p := KeywordPriority([]string{"Kubernetes", "Terraform"})
