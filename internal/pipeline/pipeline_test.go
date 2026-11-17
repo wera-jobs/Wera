@@ -653,3 +653,81 @@ func TestScoreStatsAdd(t *testing.T) {
 		t.Errorf("%+v", a)
 	}
 }
+
+// TestFactsPerRunCapsExtraction checks that one user's run extracts shared
+// facts for at most FactsPerRun postings, best ranked first, and says how
+// many it left for later.
+func TestFactsPerRunCapsExtraction(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	env.FactsPerRun = 1
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: testutil.Unique("Keep Go services healthy.")},
+		testutil.Job{Title: "Platform Engineer", Location: "Remote, US", Description: testutil.Unique("Run Kubernetes.")},
+		testutil.Job{Title: "Site Reliability Engineer II", Location: "Remote, US", Description: testutil.Unique("Own on-call.")},
+	)
+	u := testutil.User(t, pool, false)
+	p := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM analyses WHERE profile_hash = $1`, scoring.ScoreKey(p.ProfileHash))
+	})
+	if _, err := FilterUser(ctx, pool, testEngine(t), nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ScoreUser(ctx, pool, env, log, p, 0, nil, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coral.facts.Load() != 1 || st.FactsExtracted != 1 || st.FactsDeferred < 2 {
+		t.Errorf("facts calls %d, stats %+v; want 1 extracted and at least 2 deferred", coral.facts.Load(), st)
+	}
+}
+
+// TestRankingRewritesOnlyChangedEstimates checks that ranking the same
+// queue twice leaves the rows alone the second time: every write would
+// leave a dead row behind, for every pending job of every user, every run.
+func TestRankingRewritesOnlyChangedEstimates(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: "Keep Go services healthy with Kubernetes."},
+		testutil.Job{Title: "Platform Engineer", Location: "Remote, US", Description: "Terraform and Prometheus."},
+	)
+	u := testutil.User(t, pool, false)
+	p := testutil.Profile(t, pool, u.ID, sreProfile, srePrefs)
+	if _, err := FilterUser(ctx, pool, testEngine(t), nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	versions := func() map[int64]string {
+		out := map[int64]string{}
+		for _, id := range ids {
+			var xmin string
+			var est *int
+			if err := pool.QueryRow(ctx, `SELECT xmin::text, estimated_score FROM user_jobs WHERE user_id = $1 AND job_id = $2`, u.ID, id).Scan(&xmin, &est); err != nil {
+				t.Fatalf("job %d: %v", id, err)
+			}
+			if est == nil {
+				t.Fatalf("job %d has no estimate", id)
+			}
+			out[id] = xmin
+		}
+		return out
+	}
+	before := versions()
+	if _, err := RankPending(ctx, pool, nil, p); err != nil {
+		t.Fatal(err)
+	}
+	for id, v := range versions() {
+		if v != before[id] {
+			t.Errorf("job %d was rewritten with the same estimate", id)
+		}
+	}
+}

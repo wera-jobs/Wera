@@ -48,6 +48,11 @@ type Env struct {
 	ScoresPerRun         int // per scheduled run, after the first scores for a profile; 0 = no limit
 	InactiveAfterDays    int // users unseen this long get InactiveScoresPerDay
 	InactiveScoresPerDay int // enough for their digest; 0 when they get no digest
+	// FactsPerRun caps the postings one user's run extracts shared facts
+	// for (best ranked first); 0 = only the cost limits apply.
+	FactsPerRun int
+	// MatchConcurrency is how many users a run matches at once.
+	MatchConcurrency int
 
 	// Accounts and browser security.
 	SignupEnabled  bool     // POST /api/auth/signup open to anyone
@@ -78,6 +83,8 @@ func LoadEnv() (*Env, error) {
 		ScoresPerRun:         30,
 		InactiveAfterDays:    7,
 		InactiveScoresPerDay: 10,
+		FactsPerRun:          300,
+		MatchConcurrency:     3,
 		SignupEnabled:        true,
 		SignupsPerHour:       5,
 	}
@@ -174,6 +181,8 @@ func LoadEnv() (*Env, error) {
 	intVal("SCORES_PER_RUN", &e.ScoresPerRun)
 	intVal("INACTIVE_AFTER_DAYS", &e.InactiveAfterDays)
 	intVal("INACTIVE_SCORES_PER_DAY", &e.InactiveScoresPerDay)
+	intVal("FACTS_PER_RUN", &e.FactsPerRun)
+	intVal("MATCH_CONCURRENCY", &e.MatchConcurrency)
 	boolVal("SIGNUP_ENABLED", &e.SignupEnabled)
 	intVal("SIGNUPS_PER_HOUR", &e.SignupsPerHour)
 	boolVal("COOKIE_SECURE", &e.CookieSecure)
@@ -201,6 +210,12 @@ func LoadEnv() (*Env, error) {
 
 	if e.FetchConcurrency < 1 {
 		errs = append(errs, "FETCH_CONCURRENCY must be >= 1")
+	}
+	if e.MatchConcurrency < 1 {
+		errs = append(errs, "MATCH_CONCURRENCY must be >= 1")
+	}
+	if e.FactsPerRun < 0 {
+		errs = append(errs, "FACTS_PER_RUN must be >= 0")
 	}
 	if e.ScoringConcurrency < 1 {
 		errs = append(errs, "SCORING_CONCURRENCY must be >= 1")

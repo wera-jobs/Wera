@@ -76,11 +76,19 @@ func keyed(model, kind, prefix string) string {
 // whose facts are not extracted yet) fall back to TF-IDF on the posting until
 // they have facts.
 func RankPending(ctx context.Context, pool *pgxpool.Pool, e *Embedder, prof *store.Profile) (map[int64]float64, error) {
-	docs, err := store.RankDocs(ctx, pool, prof.UserID)
+	docs, hasFacts, err := store.RankDocs(ctx, pool, prof.UserID)
 	if err != nil {
 		return nil, err
 	}
-	est := relevance.Rank(prof.Markdown, docs)
+	// TF-IDF on the posting only for jobs without facts: the blend below
+	// replaces it for the rest.
+	bare := make([]relevance.Doc, 0, len(docs)-len(hasFacts))
+	for _, d := range docs {
+		if !hasFacts[d.ID] {
+			bare = append(bare, d)
+		}
+	}
+	est := relevance.Rank(prof.Markdown, bare)
 	exact := make(map[int64]float64, len(est))
 	for id, v := range est {
 		exact[id] = float64(v)
