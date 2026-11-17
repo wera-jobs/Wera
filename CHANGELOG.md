@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/wera-jobs/Wera/compare/wera-v0.20.1...wera-v0.20.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **resume:** render a link with no address as text instead of failing the preview ([a25dfcb](https://github.com/wera-jobs/Wera/commit/a25dfcb8cf1c75270f87c0ca74e20caa3baa5c11))
+
 ## [0.20.1](https://github.com/wera-jobs/Wera/compare/wera-v0.20.0...wera-v0.20.1) (2026-11-11)
 
 
