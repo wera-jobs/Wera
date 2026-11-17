@@ -43,8 +43,10 @@
   if present(data.at("phone", default: "")) { items.push(data.phone) }
   if present(data.at("email", default: "")) { items.push(link("mailto:" + data.email, data.email)) }
   if present(data.at("location", default: "")) { items.push(data.location) }
+  // A link still being typed may have a label and no address yet: print the label.
   for l in data.at("links", default: ()) {
-    items.push(link(l.url, if plain-urls { l.label } else { l.label }))
+    let label = if present(l.label) { l.label } else { l.url }
+    if present(label) { items.push(maybe-link(l.url, label)) }
   }
   items
 }
