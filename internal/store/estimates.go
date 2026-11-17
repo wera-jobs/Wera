@@ -50,7 +50,7 @@ func SetEstimates(ctx context.Context, pool *pgxpool.Pool, userID int64, scores 
 	vals := make([]int16, 0, len(scores))
 	for id, s := range scores {
 		ids = append(ids, id)
-		vals = append(vals, int16(min(max(s, -1<<15), 1<<15-1))) //nolint:gosec // clamped to the column's range
+		vals = append(vals, int16(min(max(s, -1<<15), 1<<15-1)))
 	}
 	_, err := pool.Exec(ctx, `
 		UPDATE user_jobs uj SET estimated_score = v.score
