@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/mail"
 	"strings"
+	"testing"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
@@ -22,8 +23,18 @@ const MinPasswordLen = 10
 // rather than silently truncated.
 const maxPasswordBytes = 72
 
-// bcryptCost balances login latency (~250ms) against brute force.
-const bcryptCost = 12
+// productionCost balances login latency (~250ms) against brute force.
+const productionCost = 12
+
+// bcryptCost is productionCost, except in test binaries: there the cost
+// protects nothing, and under the race detector it made the API tests
+// spend about two minutes hashing.
+var bcryptCost = func() int {
+	if testing.Testing() {
+		return bcrypt.MinCost
+	}
+	return productionCost
+}()
 
 // Validation errors returned to the client verbatim.
 var (
