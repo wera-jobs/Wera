@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -139,27 +140,47 @@ func (p *Pipeline) RunOnce(ctx context.Context) (ran bool, err error) {
 }
 
 // matchAll filters and scores new jobs for every user with a ready
-// profile (see MatchUser). One user's failure is logged and does not stop
-// the others; the first error is returned so the run is marked failed.
+// profile (see MatchUser), MatchConcurrency users at a time, so a run's
+// matching grows with the number of users divided by that, not with it.
+// One user's failure is logged and does not stop the others; the first
+// error is returned so the run is marked failed.
 func (p *Pipeline) matchAll(ctx context.Context) (excluded int, total *ScoreStats, firstErr error) {
 	profiles, err := store.ReadyProfiles(ctx, p.Pool)
 	if err != nil {
 		return 0, nil, fmt.Errorf("load profiles: %w", err)
 	}
 	total = &ScoreStats{}
+	workers := 1
+	if p.Env != nil && p.Env.MatchConcurrency > 1 {
+		workers = p.Env.MatchConcurrency
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
 	for _, prof := range profiles {
 		if ctx.Err() != nil {
-			return excluded, total, ctx.Err()
+			break
 		}
-		ex, st, err := p.MatchUser(ctx, prof)
-		excluded += ex
-		total.Add(st)
-		if err != nil {
-			p.Log.Error("matching failed", "user_id", prof.UserID, "err", err)
-			if firstErr == nil {
-				firstErr = err
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(prof *store.Profile) {
+			defer func() { <-sem; wg.Done() }()
+			ex, st, err := p.MatchUser(ctx, prof)
+			mu.Lock()
+			defer mu.Unlock()
+			excluded += ex
+			total.Add(st)
+			if err != nil {
+				p.Log.Error("matching failed", "user_id", prof.UserID, "err", err)
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
-		}
+		}(prof)
+	}
+	wg.Wait()
+	if firstErr == nil && ctx.Err() != nil {
+		firstErr = ctx.Err()
 	}
 	return excluded, total, firstErr
 }
