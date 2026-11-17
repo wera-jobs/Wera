@@ -178,6 +178,7 @@ type ScoreStats struct {
 	Skipped          int // left pending: budget guard or call error
 	Reused           int // linked to an existing analysis, no LLM call
 	FactsExtracted   int // postings whose shared facts were extracted now
+	FactsDeferred    int // postings left without facts this run (FactsPerRun)
 	ExcludedByFacts  int // excluded from shared facts, no per-user LLM call
 	Deferred         int // ranked below the user's score limit: estimate only for now
 	QuickGraded      int // given a quick grade (many jobs per call, no reason)
@@ -200,6 +201,7 @@ func (s *ScoreStats) Add(o *ScoreStats) {
 	s.Skipped += o.Skipped
 	s.Reused += o.Reused
 	s.FactsExtracted += o.FactsExtracted
+	s.FactsDeferred += o.FactsDeferred
 	s.ExcludedByFacts += o.ExcludedByFacts
 	s.Deferred += o.Deferred
 	s.QuickGraded += o.QuickGraded
@@ -373,6 +375,13 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 			missing = append(missing, j)
 		}
 	}
+	// Facts beyond what the user's scores and quick grades will reach this
+	// run are spent on postings far down their queue; later runs (or
+	// another user's) reach them if they rise.
+	if env.FactsPerRun > 0 && len(onlyIDs) == 0 && len(missing) > env.FactsPerRun {
+		st.FactsDeferred = len(missing) - env.FactsPerRun
+		missing = missing[:env.FactsPerRun]
+	}
 	factsBudget := maxCostUSD / 2
 	if len(onlyIDs) > 0 {
 		factsBudget = maxCostUSD
@@ -464,7 +473,7 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 	log.Info("scoring pass finished", "user_id", prof.UserID,
 		"scored", st.Scored, "excluded", st.Excluded, "score_failed", st.Failed,
 		"skipped", st.Skipped, "reused", st.Reused,
-		"facts_extracted", st.FactsExtracted, "excluded_by_facts", st.ExcludedByFacts,
+		"facts_extracted", st.FactsExtracted, "facts_deferred", st.FactsDeferred, "excluded_by_facts", st.ExcludedByFacts,
 		"quick_graded", st.QuickGraded, "deferred", st.Deferred,
 		"prompt_tokens", st.PromptTokens, "cached_tokens", st.CachedTokens,
 		"completion_tokens", st.CompletionTokens, "cost_usd", fmt.Sprintf("%.6f", st.CostUSD))
