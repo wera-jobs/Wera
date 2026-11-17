@@ -57,10 +57,20 @@ func runServe(ctx context.Context, args []string) error {
 		return err
 	}
 	// After a profile save, match that user's jobs right away instead of
-	// waiting for the next scheduled run.
+	// waiting for the next scheduled run. At most MATCH_CONCURRENCY run at
+	// once: a burst of sign-ups queues here instead of each starting its own
+	// AI calls and queue-sized queries in the API process.
+	matchSlots := make(chan struct{}, max(1, env.MatchConcurrency))
 	matchUser := func(ctx context.Context, userID int64) {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
+		select {
+		case matchSlots <- struct{}{}:
+			defer func() { <-matchSlots }()
+		case <-ctx.Done():
+			log.Error("matching after profile save timed out waiting for a slot", "user_id", userID)
+			return
+		}
 		prof, err := store.GetProfile(ctx, pool, userID)
 		if err != nil || prof == nil || !prof.Ready() {
 			return
