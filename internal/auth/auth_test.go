@@ -3,6 +3,8 @@ package auth
 import (
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestNormalizeEmail(t *testing.T) {
@@ -57,5 +59,15 @@ func TestLimiter(t *testing.T) {
 	}
 	if !l.Allow("other") {
 		t.Error("keys are independent")
+	}
+}
+
+func TestTestBinariesHashCheaply(t *testing.T) {
+	if bcryptCost != bcrypt.MinCost || productionCost < 12 {
+		t.Errorf("cost in tests %d, in production %d", bcryptCost, productionCost)
+	}
+	h, err := HashPassword("correct horse battery")
+	if err != nil || !CheckPassword(h, "correct horse battery") {
+		t.Fatalf("hash round trip failed: %v", err)
 	}
 }
