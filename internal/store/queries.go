@@ -58,6 +58,7 @@ type JobView struct {
 	SkillsMissing   []string   `json:"skills_missing"`
 	Reason          *string    `json:"reason"`
 	AppStatus       *string    `json:"application_status"`
+	DismissReason   *string    `json:"dismiss_reason"` // why the user passed on it, when they said
 	AppNotes        *string    `json:"application_notes"`
 	// EstimatedScore is shown until the full AI score arrives: the AI's
 	// quick grade when there is one (EstimateAI), else the local relevance
@@ -124,7 +125,7 @@ const jobViewSelect = `
 	       a.fit_score, a.verdict, a.seniority, a.years_required,
 	       a.sponsorship, a.work_mode, a.location_summary,
 	       a.skills_matched, a.skills_missing, a.reason,
-	       ap.status, ap.notes, uj.estimated_score,
+	       ap.status, ap.notes, ap.dismiss_reason, uj.estimated_score,
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
@@ -148,7 +149,7 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
+		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
 		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early}
 }
 

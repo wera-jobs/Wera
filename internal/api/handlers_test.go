@@ -57,6 +57,22 @@ func TestPutApplicationPersists(t *testing.T) {
 		t.Errorf("invalid status: want 400, got %d", r.StatusCode)
 	}
 
+	// A reason goes only with not_interested, and only a known one.
+	for _, bad := range []string{`{"status":"saved","reason":"field"}`, `{"status":"not_interested","reason":"bored"}`} {
+		req, _ := http.NewRequest(http.MethodPut, jobURL(ts, id, "/application"), strings.NewReader(bad))
+		r, _ := client.Do(req)
+		r.Body.Close()
+		if r.StatusCode != 400 {
+			t.Errorf("%s: want 400, got %d", bad, r.StatusCode)
+		}
+	}
+	put(`{"status":"not_interested","reason":"too_senior"}`)
+	var reason *string
+	_ = pool.QueryRow(context.Background(), `SELECT dismiss_reason FROM applications WHERE job_id = $1 AND user_id = $2`, id, testUserID).Scan(&reason)
+	if reason == nil || *reason != "too_senior" {
+		t.Errorf("reason not stored: %v", reason)
+	}
+
 	put(`{"status":"saved","notes":"api test"}`)
 	put(`{"status":"applied"}`) // a status alone (the extension) keeps the notes
 	var notes string
