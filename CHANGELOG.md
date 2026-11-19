@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/wera-jobs/Wera/compare/wera-v0.20.3...wera-v0.21.0) (2026-11-19)
+
+
+### Features
+
+* **api:** problem reports from the extension, listed for admins ([469c9b6](https://github.com/wera-jobs/Wera/commit/469c9b6453d853d8fe9c059c252d27f7ccb897aa))
+
 ## [0.20.3](https://github.com/wera-jobs/Wera/compare/wera-v0.20.2...wera-v0.20.3) (2026-11-17)
 
 
