@@ -20,7 +20,8 @@ Return ONLY a JSON object: {"answers": [{"id": "<field id>", "value": "<answer>"
 
 Rules:
 - Use only facts from the data. Never invent employers, dates, numbers, degrees, links or credentials. Leave a field out when the data does not answer it.
-- An earlier answer to the same or a very similar question is the best source; reuse it.
+` + FactsRule + `
+- An earlier answer to the same or a very similar question is the best source; reuse it, unless it contradicts the facts.
 - For select, radio, buttons, listbox and combobox fields with options, the value must be exactly one of the options, copied as written.
 - For checkboxes with options, the value is one option, or several separated by " | ".
 - For a single checkbox, answer "yes" to tick it or leave it out.
@@ -120,7 +121,7 @@ func AutofillMessages(in AutofillInput) []scoring.Message {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Today: %s\n\n", day(in.Today))
-	fmt.Fprintf(&b, "<profile>\n%s\n\nApplication details: %s\n</profile>\n\n", scoring.Fence(cutRunes(in.Profile, 6000)), scoring.Fence(string(details)))
+	fmt.Fprintf(&b, "%s<profile>\n%s\n\nApplication details: %s\n</profile>\n\n", FactsBlock(in.Details), scoring.Fence(cutRunes(in.Profile, 6000)), scoring.Fence(string(details)))
 	if in.Resume != "" {
 		fmt.Fprintf(&b, "<resume>\n%s\n</resume>\n\n", scoring.Fence(cutRunes(in.Resume, 7000)))
 	}
