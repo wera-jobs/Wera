@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/wera-jobs/Wera/compare/wera-v0.31.0...wera-v0.32.0) (2026-11-19)
+
+
+### Features
+
+* **api:** import tracked jobs from a spreadsheet ([8c59567](https://github.com/wera-jobs/Wera/commit/8c595675b3141cc2994c08c8e4f543945307a974)), closes [#192](https://github.com/wera-jobs/Wera/issues/192)
+
 ## [0.31.0](https://github.com/wera-jobs/Wera/compare/wera-v0.30.0...wera-v0.31.0) (2026-11-19)
 
 
