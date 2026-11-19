@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.23.0](https://github.com/wera-jobs/Wera/compare/wera-v0.22.0...wera-v0.23.0) (2026-11-19)
+
+
+### Features
+
+* **api:** return the parts each fit score was computed from ([9b37254](https://github.com/wera-jobs/Wera/commit/9b3725473f8379cc4f5511df8867704963b458f3)), closes [#189](https://github.com/wera-jobs/Wera/issues/189)
+* **api:** store each posting's pay, serve it with jobs, filter by it ([b66c2d9](https://github.com/wera-jobs/Wera/commit/b66c2d9f74fbd92a15a65951844afd1da9a03eed)), closes [#187](https://github.com/wera-jobs/Wera/issues/187)
+* **pay:** read the pay a posting states from its text ([f6ad62f](https://github.com/wera-jobs/Wera/commit/f6ad62f6d46a9906cd78d6036a90070a25e2c422))
+
 ## [0.22.0](https://github.com/wera-jobs/Wera/compare/wera-v0.21.0...wera-v0.22.0) (2026-11-19)
 
 
