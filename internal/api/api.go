@@ -255,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/resumes/{id}/txt", s.resumeText)
 			r.Get("/jobs/{id}/keywords", s.jobKeywords)
 			r.Get("/jobs/{id}/h1b", s.jobH1B)
+			r.Get("/jobs/{id}/pay-insight", s.payInsight)
 			r.Get("/jobs/{id}/resume", s.getJobResume)
 			r.Post("/jobs/{id}/resume", s.tailorJobResume)
 			r.Get("/today", s.today)
