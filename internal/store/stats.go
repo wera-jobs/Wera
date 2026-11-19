@@ -71,6 +71,7 @@ type CompanyView struct {
 	LastFetchError *string    `json:"last_fetch_error"`
 	JobsOpen       int64      `json:"jobs_open"`
 	JobsScored     int64      `json:"jobs_scored"` // the user's open, scored matches
+	LogoURL        string     `json:"logo_url,omitempty"`
 }
 
 // ListCompanies returns companies with fetch status, open job counts, and
@@ -88,8 +89,9 @@ func ListCompanies(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]Com
 		)
 		SELECT c.id, c.name, c.ats, c.token, c.industry, c.enabled,
 		       c.last_fetch_at, c.last_fetch_ok, c.last_fetch_error,
-		       COALESCE(o.n, 0), COALESCE(m.n, 0)
+		       COALESCE(o.n, 0), COALESCE(m.n, 0), lg.checked_at
 		FROM companies c
+		LEFT JOIN company_logos lg ON lg.company_id = c.id AND lg.found
 		LEFT JOIN open o ON o.company_id = c.id
 		LEFT JOIN mine m ON m.company_id = c.id
 		WHERE c.ats <> 'manual' -- companies users typed in stay private
@@ -101,10 +103,14 @@ func ListCompanies(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]Com
 	var out []CompanyView
 	for rows.Next() {
 		var v CompanyView
+		var logoAt *time.Time
 		if err := rows.Scan(&v.ID, &v.Name, &v.ATS, &v.Token, &v.Industry, &v.Enabled,
 			&v.LastFetchAt, &v.LastFetchOK, &v.LastFetchError,
-			&v.JobsOpen, &v.JobsScored); err != nil {
+			&v.JobsOpen, &v.JobsScored, &logoAt); err != nil {
 			return nil, err
+		}
+		if logoAt != nil {
+			v.LogoURL = LogoURL(v.ID, *logoAt)
 		}
 		out = append(out, v)
 	}
