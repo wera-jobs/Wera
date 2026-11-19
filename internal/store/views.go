@@ -22,7 +22,7 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 	scored, err := queryJobViews(ctx, pool, jobViewSelect+`
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
-	  AND (ap.status IS NULL OR ap.status = 'saved')
+	  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
 	ORDER BY a.fit_score - `+agePenalty+` DESC NULLS LAST, j.first_seen_at DESC
 	LIMIT $2`, userID, limit)
 	if err != nil {
@@ -38,7 +38,7 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 		estimated, err := queryJobViews(ctx, pool, jobViewSelect+`
 		  AND j.closed_at IS NULL
 		  AND uj.stage = 'pending_score'
-		  AND (ap.status IS NULL OR ap.status = 'saved')
+		  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL AND ap.archived_at IS NULL
 		ORDER BY `+queueOrder+`, j.first_seen_at DESC
 		LIMIT $2`, userID, room)
 		if err != nil {
@@ -57,7 +57,7 @@ func NewMatches(ctx context.Context, pool *pgxpool.Pool, userID int64, since tim
 	return queryJobViews(ctx, pool, jobViewSelect+`
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
-	  AND (ap.status IS NULL OR ap.status = 'saved')
+	  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
 	  AND a.created_at >= $2
 	  AND NOT EXISTS (SELECT 1 FROM analyses old
 	                  WHERE old.user_id = uj.user_id AND old.job_id = uj.job_id AND old.kind = 'score' AND old.created_at < $2)
