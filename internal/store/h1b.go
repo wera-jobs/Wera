@@ -316,6 +316,8 @@ type JobH1B struct {
 	SimilarLow *float64     `json:"similar_low"`
 	SimilarMid *float64     `json:"similar_median"`
 	SimilarHi  *float64     `json:"similar_high"`
+	// SimilarCount is how many filings the range rests on.
+	SimilarCount int `json:"similar_count"`
 	// Level is the wage level the range is for ("" when all levels).
 	Level  string    `json:"level"`
 	Period H1BPeriod `json:"period"`
@@ -365,6 +367,7 @@ func JobH1BFor(ctx context.Context, pool *pgxpool.Pool, companyID int64, title, 
 	if len(wages) > 0 {
 		lo, mid, hi := quantiles(wages)
 		out.SimilarLow, out.SimilarMid, out.SimilarHi = &lo, &mid, &hi
+		out.SimilarCount = len(wages)
 	}
 	if len(all) > 8 {
 		all = all[:8]
@@ -392,4 +395,34 @@ func JobCompanyTitle(ctx context.Context, pool *pgxpool.Pool, userID, jobID int6
 		AND (source <> 'manual' OR EXISTS (SELECT 1 FROM user_jobs WHERE job_id = j.id AND user_id = $2))`,
 		jobID, userID).Scan(&cid, &title)
 	return cid, title, err
+}
+
+// PlaceWages is what employers filed for titles like one, in one state.
+type PlaceWages struct {
+	State  string  `json:"state"`
+	Low    float64 `json:"low"`    // 10th percentile
+	Median float64 `json:"median"` //
+	High   float64 `json:"high"`   // 90th percentile
+	Count  int     `json:"count"`
+}
+
+// H1BPlaceWages summarizes H-1B filings for titles close to title in a
+// state, across all employers; nil with fewer than 5 filings.
+func H1BPlaceWages(ctx context.Context, pool *pgxpool.Pool, title, state string) (*PlaceWages, error) {
+	p := &PlaceWages{State: state}
+	var lo, mid, hi *float64
+	err := pool.QueryRow(ctx, `
+		SELECT count(*), percentile_cont(0.1) WITHIN GROUP (ORDER BY wage_from),
+		       percentile_cont(0.5) WITHIN GROUP (ORDER BY wage_from), percentile_cont(0.9) WITHIN GROUP (ORDER BY wage_from)
+		FROM h1b_lca
+		WHERE job_title % $1 AND similarity(job_title, $1) >= 0.5 AND worksite_state = $2 AND wage_from > 0`,
+		title, state).Scan(&p.Count, &lo, &mid, &hi)
+	if err != nil {
+		return nil, err
+	}
+	if p.Count < 5 || lo == nil || mid == nil || hi == nil {
+		return nil, nil
+	}
+	p.Low, p.Median, p.High = *lo, *mid, *hi
+	return p, nil
 }
