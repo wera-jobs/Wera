@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/wera-jobs/Wera/compare/wera-v0.27.0...wera-v0.28.0) (2026-11-19)
+
+
+### Features
+
+* **api:** record status history and summarize how applications are going ([e9bc6e3](https://github.com/wera-jobs/Wera/commit/e9bc6e3d672f8b7934bc35dd8aa7a0fdf4f0c2d5)), closes [#193](https://github.com/wera-jobs/Wera/issues/193)
+
 ## [0.27.0](https://github.com/wera-jobs/Wera/compare/wera-v0.26.0...wera-v0.27.0) (2026-11-19)
 
 
