@@ -107,6 +107,8 @@ func runWorker(ctx context.Context, args []string) error {
 
 	// Company logos for the dashboard: filled now, then kept fresh daily.
 	go pipeline.KeepLogos(ctx, p.Pool, p.Log, logos.New(p.Env.UserAgent))
+	// In-app notices: hourly (reminders), and after every run (new matches).
+	go pipeline.KeepNotices(ctx, p.Pool, p.Log)
 
 	sched := p.Env.RunSchedule
 	if sched != nil {
@@ -135,6 +137,9 @@ func runWorker(ctx context.Context, args []string) error {
 			}
 		}
 		ran, err := p.RunOnce(ctx)
+		if ran {
+			pipeline.MakeNotices(ctx, p.Pool, p.Log)
+		}
 		if err != nil {
 			// Log and keep looping: a failed run (e.g. one flaky board)
 			// must not kill the worker.
