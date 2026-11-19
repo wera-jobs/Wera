@@ -63,4 +63,44 @@ func TestScoredVectors(t *testing.T) {
 	if got, err = store.ScoredVectors(ctx, pool, me.ID, []string{"old", "new"}, model, 1); err != nil || len(got) != 1 || got[0].Score != 80 {
 		t.Errorf("the limit keeps the most recent: %+v, %v", got, err)
 	}
+	// Passing on a job for a reason about the job teaches a clear no, scored
+	// or not; pay or no reason teaches nothing.
+	dismiss := func(job int64, reason *string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage) VALUES ($1, $2, 'h', 'scored') ON CONFLICT DO NOTHING`, me.ID, job); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.PutApplication(ctx, pool, me.ID, job, store.ApplicationInput{Status: "not_interested", Reason: reason}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	field, senior, pay := "field", "too_senior", "pay"
+	dismiss(ids[1], &field)  // scored 30: now a no
+	dismiss(ids[2], &senior) // scored under another profile only: still a no
+	dismiss(ids[3], &pay)
+	got, err = store.ScoredVectors(ctx, pool, me.ID, []string{"old", "new"}, model, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scores := map[float32]float64{}
+	for _, g := range got {
+		scores[g.Vector[0]+10*g.Vector[1]] = g.Score
+	}
+	want := map[float32]float64{1: 80, 10: store.DismissedScore, 11: store.DismissedScore}
+	if len(scores) != len(want) {
+		t.Fatalf("with dismissals: %+v", got)
+	}
+	for k, w := range want {
+		if scores[k] != w {
+			t.Errorf("job with vector key %v: score %v, want %v", k, scores[k], w)
+		}
+	}
+	// Another status clears the reason.
+	if err := store.PutApplication(ctx, pool, me.ID, ids[1], store.ApplicationInput{Status: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	var reason *string
+	if err := pool.QueryRow(ctx, `SELECT dismiss_reason FROM applications WHERE user_id = $1 AND job_id = $2`, me.ID, ids[1]).Scan(&reason); err != nil || reason != nil {
+		t.Errorf("reason after saving: %v, %v", reason, err)
+	}
 }

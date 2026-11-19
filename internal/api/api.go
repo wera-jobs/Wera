@@ -166,6 +166,11 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/jobs/{id}", s.getJob)
 			r.Put("/jobs/{id}/application", s.putApplication)
 			r.Delete("/jobs/{id}/application", s.clearApplication)
+			r.Patch("/jobs/{id}/application", s.patchApplication)
+			r.Get("/jobs/{id}/events", s.listJobEvents)
+			r.Post("/jobs/{id}/events", s.addEvent)
+			r.Delete("/jobs/{id}/events/{eid}", s.deleteEvent)
+			r.Get("/events", s.upcomingEvents)
 			r.Post("/jobs/{id}/score", s.scoreJob)
 			r.Get("/jobs/{id}/cover-letter", s.getCoverLetter)
 			r.Post("/jobs/{id}/cover-letter", s.generateCoverLetter)
@@ -250,6 +255,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/profile/resume", s.uploadResume)
 			r.Post("/profile/draft", s.draftProfile)
 			r.Post("/profile/suggest", s.suggestPreferences)
+			r.Get("/profile/suggestions", s.getTuneSuggestions)
 			r.Get("/profile/resume/file", s.getResumeFile)
 			r.Get("/profile/avatar", s.getAvatar)
 			r.Put("/profile/avatar", s.putAvatar)
@@ -349,6 +355,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		Sponsorship:  q.Get("sponsorship"),
 		WorkMode:     q.Get("work_mode"),
 		Status:       q.Get("status"),
+		Archived:     q.Get("archived") == "1" || q.Get("archived") == "true",
 		Q:            q.Get("q"),
 		Since:        since,
 		PostedWithin: max(0, postedWithin),
