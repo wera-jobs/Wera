@@ -44,12 +44,12 @@ func suggestTunes(prefs config.Preferences, levels []config.Level, ds []store.Di
 	}
 	out := []Suggestion{}
 	if got := by["too_senior"]; len(got) >= tuneRepeats {
-		if s, ok := tooSenior(prefs, got, label); ok {
+		if s, ok := tooSenior(prefs, levels, got, label); ok {
 			out = append(out, s)
 		}
 	}
 	if got := by["too_junior"]; len(got) >= tuneRepeats {
-		if s, ok := dropLevel(prefs, got, label, "too junior"); ok {
+		if s, ok := dropLevel(prefs, levels, got, label, "too junior"); ok {
 			out = append(out, s)
 		}
 	}
@@ -66,7 +66,7 @@ func suggestTunes(prefs config.Preferences, levels []config.Level, ds []store.Di
 
 // tooSenior caps the years a job may ask for just under the fewest any of
 // the dismissed jobs asked; failing that, it drops their level.
-func tooSenior(prefs config.Preferences, ds []store.Dismissal, label func(string) string) (Suggestion, bool) {
+func tooSenior(prefs config.Preferences, levels []config.Level, ds []store.Dismissal, label func(string) string) (Suggestion, bool) {
 	fewest := 0
 	for _, d := range ds {
 		if d.YearsRequired != nil && *d.YearsRequired > 0 && (fewest == 0 || *d.YearsRequired < fewest) {
@@ -82,33 +82,45 @@ func tooSenior(prefs config.Preferences, ds []store.Dismissal, label func(string
 			Text: fmt.Sprintf("You passed on %d jobs as too senior. Hide jobs asking for more than %d years?", len(ds), limit),
 		}, true
 	}
-	return dropLevel(prefs, ds, label, "too senior")
+	return dropLevel(prefs, levels, ds, label, "too senior")
 }
 
-// dropLevel takes out of the user's levels the one most of the dismissed
-// jobs were at, unless it is their only level.
-func dropLevel(prefs config.Preferences, ds []store.Dismissal, label func(string) string, why string) (Suggestion, bool) {
-	counts := map[string]int{}
-	top := ""
+// dropLevel offers to drop the user's highest level (too senior) or lowest
+// (too junior), and only when most of the dismissed jobs with a known level
+// were at it: a job called too senior at the user's lowest level says the
+// years were too many, not that the level is wrong. Never their only level.
+func dropLevel(prefs config.Preferences, levels []config.Level, ds []store.Dismissal, label func(string) string, why string) (Suggestion, bool) {
+	var mine []string // the user's levels, lowest first
+	for _, l := range levels {
+		if prefs.AcceptsLevel(l.ID) {
+			mine = append(mine, l.ID)
+		}
+	}
+	if len(mine) < 2 {
+		return Suggestion{}, false
+	}
+	edge := mine[len(mine)-1]
+	if why == "too junior" {
+		edge = mine[0]
+	}
+	at, known := 0, 0
 	for _, d := range ds {
-		if d.Seniority == nil {
+		if d.Seniority == nil || *d.Seniority == "unknown" {
 			continue
 		}
 		l := *d.Seniority
 		if l == "junior" {
 			l = "entry"
 		}
-		if !prefs.AcceptsLevel(l) {
-			continue
-		}
-		counts[l]++
-		if counts[l] > counts[top] {
-			top = l
+		known++
+		if l == edge {
+			at++
 		}
 	}
-	if top == "" || len(prefs.Levels) < 2 {
+	if known == 0 || at*2 <= known {
 		return Suggestion{}, false
 	}
+	top := edge
 	next := prefs
 	next.Levels = slices.DeleteFunc(slices.Clone(prefs.Levels), func(l string) bool { return l == top })
 	return Suggestion{

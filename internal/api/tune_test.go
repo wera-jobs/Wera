@@ -51,6 +51,15 @@ func TestSuggestTunes(t *testing.T) {
 		t.Fatalf("too junior: %+v", got)
 	}
 
+	// Too senior at the user's lowest level says nothing about levels.
+	if got = suggestTunes(prefs, levels, []store.Dismissal{d("too_senior", "entry", 1), d("too_senior", "entry", 1), d("too_senior", "mid", 2)}); len(got) != 0 {
+		t.Errorf("too senior at the bottom level: %+v", got)
+	}
+	// Too junior at the user's top level neither.
+	if got = suggestTunes(prefs, levels, []store.Dismissal{d("too_junior", "senior", 0), d("too_junior", "senior", 0), d("too_junior", "mid", 0)}); len(got) != 0 {
+		t.Errorf("too junior at the top level: %+v", got)
+	}
+
 	// The only level is never dropped.
 	only := config.Preferences{RoleFamilies: []string{"swe"}, Levels: []string{"mid"}}
 	if got = suggestTunes(only, levels, []store.Dismissal{d("too_junior", "mid", 0), d("too_junior", "mid", 0), d("too_junior", "mid", 0)}); len(got) != 0 {
