@@ -12,6 +12,7 @@ import (
 
 	"wera/internal/config"
 	"wera/internal/filter"
+	"wera/internal/logos"
 	"wera/internal/notify"
 	"wera/internal/pipeline"
 	"wera/internal/store"
@@ -103,6 +104,9 @@ func runWorker(ctx context.Context, args []string) error {
 	// row is closed even then.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Company logos for the dashboard: filled now, then kept fresh daily.
+	go pipeline.KeepLogos(ctx, p.Pool, p.Log, logos.New(p.Env.UserAgent))
 
 	sched := p.Env.RunSchedule
 	if sched != nil {

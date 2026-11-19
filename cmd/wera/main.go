@@ -33,6 +33,7 @@ Usage:
   wera mail <preview|test|digest|send>  email templates and delivery (see wera mail)
   wera h1b <import|match|status> load H-1B disclosure data from the Department of Labor
   wera healthcheck              exit 0 if the database is reachable (container healthchecks)
+  wera logos                    look for company logos due a look (the worker does this daily)
   wera version                  print the version and commit
 `
 
@@ -98,6 +99,9 @@ func main() {
 
 	case "healthcheck":
 		err = runHealthcheck(ctx, args)
+
+	case "logos":
+		err = runLogos(ctx, args)
 
 	case "version", "--version":
 		fmt.Println("wera", buildinfo.String())

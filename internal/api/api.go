@@ -143,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/auth/logout", s.logout)
 		r.Get("/auth/config", s.authConfig)
 		r.Get("/public/stats", s.publicStats)
+		r.Get("/companies/{id}/logo", s.companyLogo)
 		r.Post("/page-seen", s.pageSeen)
 		r.Post("/auth/verify-email", s.verifyEmail)
 		r.Post("/auth/password/forgot", s.forgotPassword)

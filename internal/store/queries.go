@@ -83,6 +83,9 @@ type JobView struct {
 	// FitParts are the ratings the fit score was computed from (see
 	// scoring.Ratings.Score); nil for jobs scored before ratings existed.
 	FitParts *FitParts `json:"fit_parts"`
+	// LogoURL is where the company's logo is served; empty when it has none.
+	LogoURL string `json:"logo_url,omitempty"`
+	logoAt  *time.Time
 	// Early: the posting went up in the last three days and Wera found it
 	// within a day of that, so applying now puts the user among the first.
 	// Never claimed for a posting with no date.
@@ -104,6 +107,9 @@ type FitParts struct {
 // finish fills what a scan leaves raw: the fit parts, parsed leniently
 // (a reply that doesn't parse, or rates outside 0-10, gives none).
 func (v *JobView) finish() {
+	if v.logoAt != nil {
+		v.LogoURL = LogoURL(v.CompanyID, *v.logoAt)
+	}
 	if v.ratings == nil || v.FitScore == nil {
 		return
 	}
@@ -135,7 +141,8 @@ const jobViewSelect = `
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
 	       substring(a.raw #>> '{}' from '"ratings"\s*:\s*(\{[^}]*\})'),
-	       COALESCE(j.posted_at > now() - interval '3 days' AND j.first_seen_at <= j.posted_at + interval '1 day', false)
+	       COALESCE(j.posted_at > now() - interval '3 days' AND j.first_seen_at <= j.posted_at + interval '1 day', false),
+	       (SELECT l.checked_at FROM company_logos l WHERE l.company_id = j.company_id AND l.found)
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -155,7 +162,7 @@ func jobViewScan(v *JobView) []any {
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
 		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
-		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early}
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt}
 }
 
 // normalizeLimit clamps a page size for API queries.
