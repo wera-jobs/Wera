@@ -77,6 +77,10 @@ type JobView struct {
 	// FitParts are the ratings the fit score was computed from (see
 	// scoring.Ratings.Score); nil for jobs scored before ratings existed.
 	FitParts *FitParts `json:"fit_parts"`
+	// Early: the posting went up in the last three days and Wera found it
+	// within a day of that, so applying now puts the user among the first.
+	// Never claimed for a posting with no date.
+	Early bool `json:"early"`
 	ratings  *string   // the ratings object as the model wrote it, parsed by finish
 }
 
@@ -124,7 +128,8 @@ const jobViewSelect = `
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
-	       substring(a.raw #>> '{}' from '"ratings"\s*:\s*(\{[^}]*\})')
+	       substring(a.raw #>> '{}' from '"ratings"\s*:\s*(\{[^}]*\})'),
+	       COALESCE(j.posted_at > now() - interval '3 days' AND j.first_seen_at <= j.posted_at + interval '1 day', false)
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -144,7 +149,7 @@ func jobViewScan(v *JobView) []any {
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
 		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
-		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings}
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early}
 }
 
 // normalizeLimit clamps a page size for API queries.
