@@ -95,6 +95,44 @@ func (s *Server) createExtToken(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusCreated, map[string]any{"token": token, "user": u, "connection": t})
 }
 
+// connectExtension is POST /api/ext/tokens/session: a key for the
+// extension, for the user signed in to the dashboard, so connecting needs
+// no password typed into the extension (the dashboard hands the key to
+// the extension's script on this page). Only a browser session may ask:
+// an extension key can't mint more keys.
+func (s *Server) connectExtension(w http.ResponseWriter, r *http.Request) {
+	if bearerHash(r) != "" {
+		s.writeError(w, http.StatusForbidden, "connect from the dashboard, signed in")
+		return
+	}
+	u := currentUser(r)
+	if !s.accountLimit.Allow("connect:" + strconv.FormatInt(u.ID, 10)) {
+		s.writeError(w, http.StatusTooManyRequests, "too many connections this hour; try again later")
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	_ = decodeJSON(r, &in) // the name is optional
+	token, _, err := auth.NewToken()
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "could not create a token")
+		return
+	}
+	token = extTokenPrefix + token
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len(name) > 80 {
+		name = "Chrome extension"
+	}
+	t, err := store.CreateAPIToken(r.Context(), s.Pool, u.ID, auth.HashToken(token), name)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "could not create a token")
+		return
+	}
+	s.Log.Info("extension connected from the dashboard", "user_id", u.ID, "token_id", t.ID)
+	s.writeJSON(w, http.StatusCreated, map[string]any{"token": token, "user": u, "connection": t})
+}
+
 func (s *Server) listExtTokens(w http.ResponseWriter, r *http.Request) {
 	ts, err := store.ListAPITokens(r.Context(), s.Pool, currentUser(r).ID)
 	if err != nil {
