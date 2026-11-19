@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.31.0](https://github.com/wera-jobs/Wera/compare/wera-v0.30.0...wera-v0.31.0) (2026-11-19)
+
+
+### Features
+
+* **api:** draft follow-ups, thank-yous, referral requests and offer replies ([85b273e](https://github.com/wera-jobs/Wera/commit/85b273ee10b5330433f593122c200ac9f4834209)), closes [#195](https://github.com/wera-jobs/Wera/issues/195)
+
+
+### Bug Fixes
+
+* **api:** draft each kind of email only when the application has reached it ([8ed7cae](https://github.com/wera-jobs/Wera/commit/8ed7cae772e758992f5424d472b1dee721e9c5f0)), closes [#195](https://github.com/wera-jobs/Wera/issues/195)
+
 ## [0.30.0](https://github.com/wera-jobs/Wera/compare/wera-v0.29.0...wera-v0.30.0) (2026-11-19)
 
 
