@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.0](https://github.com/wera-jobs/Wera/compare/wera-v0.29.0...wera-v0.30.0) (2026-11-19)
+
+
+### Features
+
+* **api:** company pages and following companies ([9fb66d1](https://github.com/wera-jobs/Wera/commit/9fb66d15db2fb6e5c762d4e81dde8372ecd3f9d3)), closes [#194](https://github.com/wera-jobs/Wera/issues/194)
+
+
+### Bug Fixes
+
+* **api:** count a company's matches instead of capping the list at 100 ([61e4a1d](https://github.com/wera-jobs/Wera/commit/61e4a1d3f02bb22bcb84abc5740b18553941b251)), closes [#194](https://github.com/wera-jobs/Wera/issues/194)
+
 ## [0.29.0](https://github.com/wera-jobs/Wera/compare/wera-v0.28.0...wera-v0.29.0) (2026-11-19)
 
 
