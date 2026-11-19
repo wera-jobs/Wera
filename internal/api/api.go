@@ -92,6 +92,7 @@ type Server struct {
 	extAILimit   *auth.Limiter
 	previewLimit *auth.Limiter
 	beaconLimit  *auth.Limiter
+	reportLimit  *auth.Limiter
 
 	// Site analytics (analytics.go): today's visitor salt and the request counter.
 	saltMu   sync.Mutex
@@ -131,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	s.extAILimit = auth.NewLimiter(120, time.Hour)
 	s.previewLimit = auth.NewLimiter(900, time.Hour)
 	s.beaconLimit = auth.NewLimiter(600, time.Hour)
+	s.reportLimit = auth.NewLimiter(10, time.Hour)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
 
@@ -211,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/ext/autofill-runs", s.startAutofillRun)
 			r.Post("/ext/autofill-runs/{id}/pages", s.addAutofillPage)
 			r.Get("/autofill-runs", s.listAutofillRuns)
+			r.Post("/ext/reports", s.addProblemReport)
 
 			r.Get("/resumes", s.listResumes)
 			r.Post("/resumes/import", s.importResume)
@@ -269,6 +272,9 @@ func (s *Server) Handler() http.Handler {
 				r.Put("/content/{kind}/{id}/status", s.setContentStatus)
 				r.Delete("/content/{kind}/{id}", s.deleteContent)
 				r.Get("/audit", s.adminAudit)
+				r.Get("/reports", s.adminReports)
+				r.Get("/reports/{id}", s.adminReport)
+				r.Patch("/reports/{id}", s.resolveReport)
 				r.Get("/email", s.emailOverview)
 				r.Get("/email/preview/{name}", s.emailPreview)
 				r.Post("/email/test", s.emailTest)
