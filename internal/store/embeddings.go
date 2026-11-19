@@ -102,18 +102,33 @@ type ScoredVector struct {
 	Vector []float32
 }
 
+// DismissedScore is what a job the user passed on for a reason about the
+// job itself counts as when learning: a clear no, whatever the AI said.
+const DismissedScore = 5
+
 // ScoredVectors returns the user's newest AI score of each job among those
 // stored under keys (one profile text may have scores from several scoring
 // methods), with the job's embedding from this model: the limit most recent,
-// newest first. Jobs without such an embedding are left out.
+// newest first. Jobs without such an embedding are left out. A job the user
+// passed on with one of LearnedDismissReasons counts as DismissedScore,
+// scored or not: the user's own no outranks the AI's guess.
 func ScoredVectors(ctx context.Context, pool *pgxpool.Pool, userID int64, keys []string, model string, limit int) ([]ScoredVector, error) {
 	rows, err := pool.Query(ctx, `
+		WITH dismissed AS (
+			SELECT ap.job_id, e.embedding, ap.updated_at
+			FROM applications ap JOIN job_embeddings e ON e.job_id = ap.job_id AND e.model = $3
+			WHERE ap.user_id = $1 AND ap.status = 'not_interested' AND ap.dismiss_reason = ANY($5::text[])
+		)
 		SELECT fit_score, embedding FROM (
-			SELECT DISTINCT ON (a.job_id) a.fit_score, e.embedding, a.created_at
-			FROM analyses a JOIN job_embeddings e ON e.job_id = a.job_id AND e.model = $3
-			WHERE a.user_id = $1 AND a.kind = 'score' AND a.fit_score IS NOT NULL AND a.profile_hash = ANY($2::text[])
-			ORDER BY a.job_id, a.created_at DESC
-		) newest ORDER BY created_at DESC LIMIT $4`, userID, keys, model, limit)
+			SELECT $6::int AS fit_score, embedding, updated_at AS at FROM dismissed
+			UNION ALL
+			SELECT fit_score, embedding, created_at FROM (
+				SELECT DISTINCT ON (a.job_id) a.job_id, a.fit_score, e.embedding, a.created_at
+				FROM analyses a JOIN job_embeddings e ON e.job_id = a.job_id AND e.model = $3
+				WHERE a.user_id = $1 AND a.kind = 'score' AND a.fit_score IS NOT NULL AND a.profile_hash = ANY($2::text[])
+				ORDER BY a.job_id, a.created_at DESC
+			) newest WHERE job_id NOT IN (SELECT job_id FROM dismissed)
+		) learned ORDER BY at DESC LIMIT $4`, userID, keys, model, limit, LearnedDismissReasons, DismissedScore)
 	if err != nil {
 		return nil, fmt.Errorf("load scored vectors: %w", err)
 	}

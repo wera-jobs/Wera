@@ -22,7 +22,8 @@ func (s *Server) putApplication(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Status string  `json:"status"`
-		Notes  *string `json:"notes"` // optional: left out, the saved notes stay
+		Notes  *string `json:"notes"`  // optional: left out, the saved notes stay
+		Reason *string `json:"reason"` // optional, not_interested only: why
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
@@ -33,9 +34,14 @@ func (s *Server) putApplication(w http.ResponseWriter, r *http.Request) {
 			"status must be saved, applied, interviewing, offer, rejected or not_interested")
 		return
 	}
+	if body.Reason != nil && (body.Status != "not_interested" || !store.ValidDismissReasons[*body.Reason]) {
+		s.writeError(w, http.StatusBadRequest,
+			"reason goes with not_interested and must be too_senior, too_junior, location, field, company, pay or other")
+		return
+	}
 	user := currentUser(r)
 	err := store.PutApplication(r.Context(), s.Pool, user.ID, id, store.ApplicationInput{
-		Status: body.Status, Notes: body.Notes,
+		Status: body.Status, Notes: body.Notes, Reason: body.Reason,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		s.writeError(w, http.StatusNotFound, "job not found")

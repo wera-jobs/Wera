@@ -87,7 +87,23 @@ func queryJobViews(ctx context.Context, pool *pgxpool.Pool, sqlText string, args
 type ApplicationInput struct {
 	Status string
 	Notes  *string // nil keeps the notes already saved
+	// Reason is why the user passed on the job (status not_interested
+	// only): one of ValidDismissReasons, or nil for none. Any other status
+	// clears it.
+	Reason *string
 }
+
+// ValidDismissReasons mirrors the applications.dismiss_reason constraint.
+var ValidDismissReasons = map[string]bool{
+	"too_senior": true, "too_junior": true, "location": true, "field": true,
+	"company": true, "pay": true, "other": true,
+}
+
+// LearnedDismissReasons are the reasons that say something about the kind
+// of job (its field, level, place or employer), which the ranker learns
+// from. Pay and other say nothing a job's text shows, and no reason says
+// nothing at all.
+var LearnedDismissReasons = []string{"too_senior", "too_junior", "location", "field", "company"}
 
 // ValidApplicationStatuses mirrors the applications.status constraint.
 var ValidApplicationStatuses = map[string]bool{
@@ -111,8 +127,9 @@ func ClearApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int
 // job the user has no match row for is pgx.ErrNoRows.
 func PutApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64, in ApplicationInput) error {
 	tag, err := pool.Exec(ctx, `
-		INSERT INTO applications (user_id, job_id, status, notes, applied_at, updated_at)
-		SELECT $4, $1, $2, coalesce($3, ''), CASE WHEN $2 = 'applied' THEN now() END, now()
+		INSERT INTO applications (user_id, job_id, status, notes, applied_at, updated_at, dismiss_reason)
+		SELECT $4, $1, $2, coalesce($3, ''), CASE WHEN $2 = 'applied' THEN now() END, now(),
+		       CASE WHEN $2 = 'not_interested' THEN $5::text END
 		WHERE EXISTS (SELECT 1 FROM user_jobs WHERE user_id = $4 AND job_id = $1)
 		ON CONFLICT (user_id, job_id) DO UPDATE
 		SET status     = EXCLUDED.status,
@@ -120,8 +137,9 @@ func PutApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64
 		    applied_at = CASE WHEN applications.status <> 'applied'
 		                       AND EXCLUDED.status = 'applied'
 		                      THEN now() ELSE applications.applied_at END,
-		    updated_at = now()`,
-		jobID, in.Status, in.Notes, userID)
+		    updated_at = now(),
+		    dismiss_reason = EXCLUDED.dismiss_reason`,
+		jobID, in.Status, in.Notes, userID, in.Reason)
 	if err != nil {
 		return fmt.Errorf("put application for job %d: %w", jobID, err)
 	}
@@ -129,4 +147,37 @@ func PutApplication(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+// Dismissal is a job the user passed on with a reason, and what the AI read
+// of its level.
+type Dismissal struct {
+	Reason        string
+	Seniority     *string // the score's level: entry, mid, senior...; nil when unscored
+	YearsRequired *int
+}
+
+// RecentDismissals returns the user's Not interested jobs with a reason,
+// set since the given time.
+func RecentDismissals(ctx context.Context, pool *pgxpool.Pool, userID int64, since time.Time) ([]Dismissal, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT ap.dismiss_reason, a.seniority, a.years_required
+		FROM applications ap
+		LEFT JOIN user_jobs uj ON uj.user_id = ap.user_id AND uj.job_id = ap.job_id
+		LEFT JOIN analyses a ON a.id = uj.analysis_id
+		WHERE ap.user_id = $1 AND ap.status = 'not_interested' AND ap.dismiss_reason IS NOT NULL AND ap.updated_at >= $2
+		ORDER BY ap.updated_at DESC`, userID, since)
+	if err != nil {
+		return nil, fmt.Errorf("recent dismissals: %w", err)
+	}
+	defer rows.Close()
+	var out []Dismissal
+	for rows.Next() {
+		var d Dismissal
+		if err := rows.Scan(&d.Reason, &d.Seniority, &d.YearsRequired); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }

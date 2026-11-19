@@ -250,6 +250,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/profile/resume", s.uploadResume)
 			r.Post("/profile/draft", s.draftProfile)
 			r.Post("/profile/suggest", s.suggestPreferences)
+			r.Get("/profile/suggestions", s.getTuneSuggestions)
 			r.Get("/profile/resume/file", s.getResumeFile)
 			r.Get("/profile/avatar", s.getAvatar)
 			r.Put("/profile/avatar", s.putAvatar)
