@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.24.0](https://github.com/wera-jobs/Wera/compare/wera-v0.23.0...wera-v0.24.0) (2026-11-19)
+
+
+### Features
+
+* **api:** flag postings the user can be early to ([ff90d24](https://github.com/wera-jobs/Wera/commit/ff90d2427083a141138301a5083cf10bd7caa1f8)), closes [#190](https://github.com/wera-jobs/Wera/issues/190)
+* **api:** learn from why the user passed on a job ([48d5ff2](https://github.com/wera-jobs/Wera/commit/48d5ff24361fec11853260ca30796db273839b10)), closes [#191](https://github.com/wera-jobs/Wera/issues/191)
+* **api:** next steps, a contact, interview events and archive per application ([b5367e2](https://github.com/wera-jobs/Wera/commit/b5367e2fb7da47872db98ac76f5e6d6839ac2c8a)), closes [#192](https://github.com/wera-jobs/Wera/issues/192)
+
+
+### Bug Fixes
+
+* **api:** only suggest dropping the level at the edge the reason points to ([2c6cf7e](https://github.com/wera-jobs/Wera/commit/2c6cf7e0fe351dc4c713ff4876eb06a61d7a2ecf)), closes [#191](https://github.com/wera-jobs/Wera/issues/191)
+
 ## [0.23.0](https://github.com/wera-jobs/Wera/compare/wera-v0.22.0...wera-v0.23.0) (2026-11-19)
 
 
