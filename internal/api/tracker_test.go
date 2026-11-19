@@ -71,6 +71,11 @@ func TestTrackerDetailsAndEvents(t *testing.T) {
 		t.Errorf("clearing: %+v %v", job.Contact, job.NextStep)
 	}
 	call(http.MethodPatch, "/application", `{"next_step_at":"tomorrow"}`, 400)
+	call(http.MethodPatch, "/application", `{"resume_kind":"poster"}`, 400)
+	_ = json.Unmarshal(call(http.MethodPatch, "/application", `{"resume_kind":"upload","letter_sent":true}`, 200), &job)
+	if job.ResumeUsed == nil || job.ResumeUsed.Kind != "upload" || !job.ResumeUsed.Letter || job.ResumeUsed.By != "you" {
+		t.Errorf("resume used: %+v", job.ResumeUsed)
+	}
 	call(http.MethodPatch, "/application", `{"next_step":"`+strings.Repeat("x", 201)+`"}`, 400)
 
 	// Events.

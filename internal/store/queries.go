@@ -83,6 +83,12 @@ type JobView struct {
 	// FitParts are the ratings the fit score was computed from (see
 	// scoring.Ratings.Score); nil for jobs scored before ratings existed.
 	FitParts *FitParts `json:"fit_parts"`
+	// ResumeUsed is the resume (and letter) that went with the application:
+	// what the user set, else what the extension last attached.
+	ResumeUsed *ResumeUsed `json:"resume_used"`
+	apResume   *string
+	apLetter   *bool
+	runFiles   *string // kind|name|letter of the latest run that attached a resume
 	// LogoURL is where the company's logo is served; empty when it has none.
 	LogoURL string `json:"logo_url,omitempty"`
 	logoAt  *time.Time
@@ -104,12 +110,40 @@ type FitParts struct {
 	Blocker   bool `json:"blocker"`
 }
 
+// ResumeUsed says which resume went with an application, and who said so.
+type ResumeUsed struct {
+	Kind   string `json:"kind"`   // tailored | base | upload; empty when only the letter is known
+	Name   string `json:"name"`   // the file name, when the extension attached it
+	Letter bool   `json:"letter"` // a cover letter went too
+	By     string `json:"by"`     // you | extension
+}
+
+func resumeUsed(apKind *string, apLetter *bool, run *string) *ResumeUsed {
+	var r *ResumeUsed
+	if run != nil {
+		if p := strings.SplitN(*run, "|", 3); len(p) == 3 {
+			r = &ResumeUsed{Kind: p[0], Name: p[1], Letter: p[2] == "true", By: "extension"}
+		}
+	}
+	if apKind != nil {
+		r = &ResumeUsed{Kind: *apKind, By: "you", Letter: r != nil && r.Letter}
+	}
+	if apLetter != nil {
+		if r == nil {
+			r = &ResumeUsed{By: "you"}
+		}
+		r.Letter = *apLetter
+	}
+	return r
+}
+
 // finish fills what a scan leaves raw: the fit parts, parsed leniently
 // (a reply that doesn't parse, or rates outside 0-10, gives none).
 func (v *JobView) finish() {
 	if v.logoAt != nil {
 		v.LogoURL = LogoURL(v.CompanyID, *v.logoAt)
 	}
+	v.ResumeUsed = resumeUsed(v.apResume, v.apLetter, v.runFiles)
 	if v.ratings == nil || v.FitScore == nil {
 		return
 	}
@@ -142,7 +176,10 @@ const jobViewSelect = `
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
 	       substring(a.raw #>> '{}' from '"ratings"\s*:\s*(\{[^}]*\})'),
 	       COALESCE(j.posted_at > now() - interval '3 days' AND j.first_seen_at <= j.posted_at + interval '1 day', false),
-	       (SELECT l.checked_at FROM company_logos l WHERE l.company_id = j.company_id AND l.found)
+	       (SELECT l.checked_at FROM company_logos l WHERE l.company_id = j.company_id AND l.found),
+	       ap.resume_kind, ap.letter_sent,
+	       (SELECT r.resume_kind || '|' || coalesce(r.resume_name, '') || '|' || r.letter FROM autofill_runs r
+	        WHERE r.user_id = uj.user_id AND r.job_id = j.id AND r.resume_kind IS NOT NULL ORDER BY r.updated_at DESC LIMIT 1)
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -162,7 +199,7 @@ func jobViewScan(v *JobView) []any {
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
 		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
-		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt}
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt, &v.apResume, &v.apLetter, &v.runFiles}
 }
 
 // normalizeLimit clamps a page size for API queries.

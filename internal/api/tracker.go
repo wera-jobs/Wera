@@ -37,12 +37,18 @@ func (s *Server) patchApplication(w http.ResponseWriter, r *http.Request) {
 		Contact      *store.Contact `json:"contact"`
 		ClearContact bool           `json:"clear_contact"`
 		Archived     *bool          `json:"archived"`
+		ResumeKind   *string        `json:"resume_kind"` // tailored | base | upload; "" clears
+		LetterSent   *bool          `json:"letter_sent"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
 		return
 	}
-	d := store.ApplicationDetails{Archived: body.Archived, Contact: body.Contact}
+	if body.ResumeKind != nil && *body.ResumeKind != "" && !store.ResumeKinds[*body.ResumeKind] {
+		s.writeError(w, http.StatusBadRequest, "resume_kind must be tailored, base or upload")
+		return
+	}
+	d := store.ApplicationDetails{Archived: body.Archived, Contact: body.Contact, ResumeKind: body.ResumeKind, LetterSent: body.LetterSent}
 	if body.ClearContact {
 		d.Contact = &store.Contact{}
 	}
