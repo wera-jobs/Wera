@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.29.0](https://github.com/wera-jobs/Wera/compare/wera-v0.28.0...wera-v0.29.0) (2026-11-19)
+
+
+### Features
+
+* **api:** record which resume and letter went with each application ([1eb252e](https://github.com/wera-jobs/Wera/commit/1eb252e72c8a333a2a441156f227c9d79a5a3c2b))
+
+## [0.28.0](https://github.com/wera-jobs/Wera/compare/wera-v0.27.0...wera-v0.28.0) (2026-11-19)
+
+
+### Features
+
+* **api:** record status history and summarize how applications are going ([e9bc6e3](https://github.com/wera-jobs/Wera/commit/e9bc6e3d672f8b7934bc35dd8aa7a0fdf4f0c2d5)), closes [#193](https://github.com/wera-jobs/Wera/issues/193)
+
+## [0.27.0](https://github.com/wera-jobs/Wera/compare/wera-v0.26.0...wera-v0.27.0) (2026-11-19)
+
+
+### Features
+
+* **api:** saved searches ([a152926](https://github.com/wera-jobs/Wera/commit/a152926ea68ed2c78ae76303ac2a70c0f45065e5)), closes [#197](https://github.com/wera-jobs/Wera/issues/197)
+
+## [0.26.0](https://github.com/wera-jobs/Wera/compare/wera-v0.25.0...wera-v0.26.0) (2026-11-19)
+
+
+### Features
+
+* **api:** in-app notifications for strong matches, closed postings and reminders ([1d8c873](https://github.com/wera-jobs/Wera/commit/1d8c87375d65af967a21598a875f52de8a8ecb30)), closes [#196](https://github.com/wera-jobs/Wera/issues/196)
+
 ## [0.25.0](https://github.com/wera-jobs/Wera/compare/wera-v0.24.0...wera-v0.25.0) (2026-11-19)
 
 
