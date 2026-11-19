@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -70,19 +71,10 @@ func (s *Server) suggestFill(w http.ResponseWriter, r *http.Request) {
 	if !s.aiReady(w, r, "suggesting answers") {
 		return
 	}
-	view, err := s.applicantFor(r.Context(), user)
+	details, err := s.aiDetails(r.Context(), user)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "query failed")
 		return
-	}
-	raw, _ := json.Marshal(view.Applicant)
-	var all map[string]string
-	_ = json.Unmarshal(raw, &all)
-	details := map[string]string{}
-	for k, v := range all {
-		if v != "" && !selfID[k] {
-			details[k] = v
-		}
 	}
 	saved, err := store.ListAnswers(r.Context(), s.Pool, user.ID)
 	if err != nil {
@@ -110,4 +102,24 @@ func (s *Server) suggestFill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"answers": out})
+}
+
+// aiDetails are the user's application details the AI may see: every
+// filled one except self-identification. They win over the profile text
+// and resume wherever those disagree (see profile.FactsBlock).
+func (s *Server) aiDetails(ctx context.Context, user *store.User) (map[string]string, error) {
+	view, err := s.applicantFor(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	raw, _ := json.Marshal(view.Applicant)
+	var all map[string]string
+	_ = json.Unmarshal(raw, &all)
+	details := map[string]string{}
+	for k, v := range all {
+		if v != "" && !selfID[k] {
+			details[k] = v
+		}
+	}
+	return details, nil
 }
