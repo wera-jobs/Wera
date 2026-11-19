@@ -339,6 +339,12 @@ func TestEmailDrafts(t *testing.T) {
 	if u, _ := llm.lastUser.Load().(string); !strings.Contains(u, "Status: applied") {
 		t.Errorf("the tracker wasn't sent: %s", u)
 	}
+	// A thank-you needs an interview, an offer reply an offer.
+	for _, kind := range []string{"thank_you", "offer_reply"} {
+		if code, body := do(t, client, http.MethodPost, url, `{"kind":"`+kind+`"}`); code != 409 {
+			t.Errorf("%s on an applied job: want 409, got %d %s", kind, code, body)
+		}
+	}
 	before := llm.calls.Load()
 	code, body = do(t, client, http.MethodPost, url, `{"kind":"referral_request"}`)
 	_ = json.Unmarshal([]byte(body), &e)
