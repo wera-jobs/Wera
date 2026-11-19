@@ -15,7 +15,8 @@ import (
 // candidate gets them as one authoritative block.
 
 // FactsRule is the instruction that goes with FactsBlock.
-const FactsRule = `- The <facts> block is the candidate's own confirmed application details. Where the profile or resume says something different (where they live, work authorization, visa or sponsorship needs, current employer, education), the facts are right: use them and never repeat the conflicting version.`
+const FactsRule = `- The <facts> block is the candidate's own confirmed application details. Where the profile or resume says something different (where they live, work authorization, visa or sponsorship needs, current employer, education), the facts are right: use them and never repeat the conflicting version.
+- Work authorization, sponsorship and visa facts are about the candidate's own country (the country fact). They say nothing about working anywhere else: for a job or a question about another country, never answer work rights from them; only citizenship of that country settles it.`
 
 // factKeys are the details that settle a disagreement, in reading order.
 // Contact details and self-identification never go in.
