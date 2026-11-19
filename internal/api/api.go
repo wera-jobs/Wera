@@ -215,6 +215,7 @@ func (s *Server) Handler() http.Handler {
 
 			// Chrome extension (bearer token or session).
 			r.Get("/ext/tokens", s.listExtTokens)
+			r.Post("/ext/tokens/session", s.connectExtension)
 			r.Delete("/ext/tokens/{id}", s.deleteExtToken)
 			r.Get("/applicant", s.getApplicant)
 			r.Put("/applicant", s.putApplicant)

@@ -420,3 +420,24 @@ func TestAutofillRuns(t *testing.T) {
 		t.Errorf("job after autofill: %s", body)
 	}
 }
+
+func TestConnectExtensionFromDashboard(t *testing.T) {
+	ts, _ := testServer(t, nil)
+	code, body := do(t, client, http.MethodPost, ts.URL+"/api/ext/tokens/session", `{"name":"Chrome on laptop"}`)
+	var out struct{ Token string }
+	_ = json.Unmarshal([]byte(body), &out)
+	if code != 201 || !strings.HasPrefix(out.Token, "wera_ext_") {
+		t.Fatalf("connect from the dashboard: %d %s", code, body)
+	}
+	ext := &http.Client{Transport: extTransport{out.Token}}
+	if code, _ := do(t, ext, http.MethodGet, ts.URL+"/api/auth/me", ""); code != 200 {
+		t.Errorf("the new key doesn't work: %d", code)
+	}
+	// A key can't mint more keys.
+	if code, _ := do(t, ext, http.MethodPost, ts.URL+"/api/ext/tokens/session", ""); code != 403 {
+		t.Errorf("a key minting a key: want 403, got %d", code)
+	}
+	if code, _ := do(t, ext, http.MethodDelete, ts.URL+"/api/ext/tokens/current", ""); code != 204 {
+		t.Errorf("disconnect: %d", code)
+	}
+}
