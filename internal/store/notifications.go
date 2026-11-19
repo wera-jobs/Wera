@@ -11,7 +11,7 @@ import (
 // Notification is an in-app notice.
 type Notification struct {
 	ID        int64      `json:"id"`
-	Kind      string     `json:"kind"` // strong_matches | posting_closed | reminder
+	Kind      string     `json:"kind"` // strong_matches | posting_closed | reminder | followed_company
 	JobID     *int64     `json:"job_id"`
 	Title     string     `json:"title"`
 	Body      string     `json:"body"`
@@ -117,6 +117,30 @@ func MakeNotifications(ctx context.Context, pool *pgxpool.Pool, now time.Time) (
 		ON CONFLICT (user_id, key) DO NOTHING`, now)
 	if err != nil {
 		return total, fmt.Errorf("closed posting notices: %w", err)
+	}
+	total += int(tag.RowsAffected())
+
+	tag, err = pool.Exec(ctx, `
+		WITH fresh AS (
+		  SELECT f.user_id, c.id AS company_id, c.name, count(*) AS n,
+		         (array_agg(j.id ORDER BY j.first_seen_at DESC))[1] AS top_job,
+		         (array_agg(j.title ORDER BY j.first_seen_at DESC))[1] AS top
+		  FROM company_follows f
+		  JOIN companies c ON c.id = f.company_id
+		  JOIN jobs j ON j.company_id = c.id AND j.closed_at IS NULL
+		  WHERE j.first_seen_at >= date_trunc('day', $1::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+		    AND j.first_seen_at <= $1 AND j.first_seen_at >= f.created_at
+		  GROUP BY f.user_id, c.id, c.name
+		)
+		INSERT INTO notifications (user_id, kind, key, job_id, title, body, created_at)
+		SELECT user_id, 'followed_company', 'follow:' || company_id || ':' || to_char($1::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD'), top_job,
+		       n || CASE WHEN n = 1 THEN ' new role at ' ELSE ' new roles at ' END || name, 'Newest: ' || top, $1
+		FROM fresh
+		ON CONFLICT (user_id, key) DO UPDATE
+		SET title = EXCLUDED.title, body = EXCLUDED.body, job_id = EXCLUDED.job_id, created_at = EXCLUDED.created_at, read_at = NULL
+		WHERE notifications.title <> EXCLUDED.title`, now)
+	if err != nil {
+		return total, fmt.Errorf("followed company notices: %w", err)
 	}
 	total += int(tag.RowsAffected())
 
