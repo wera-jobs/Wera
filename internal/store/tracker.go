@@ -196,3 +196,21 @@ func DueReminders(ctx context.Context, pool *pgxpool.Pool, from, to time.Time) (
 	}
 	return out, rows.Err()
 }
+
+// SetAppliedAt records when the user applied (from an import): the
+// application's applied_at and the time of its history's applied step, so
+// the progress view counts it in the right week.
+func SetAppliedAt(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64, at time.Time) error {
+	if _, err := pool.Exec(ctx, `UPDATE applications SET applied_at = $3 WHERE user_id = $1 AND job_id = $2`, userID, jobID, at); err != nil {
+		return fmt.Errorf("set applied_at: %w", err)
+	}
+	tag, err := pool.Exec(ctx, `UPDATE application_changes SET at = $3 WHERE user_id = $1 AND job_id = $2 AND status = 'applied'`, userID, jobID, at)
+	if err != nil {
+		return fmt.Errorf("set applied change: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Imported straight as interviewing, offer or rejected: it was sent first.
+		_, err = pool.Exec(ctx, `INSERT INTO application_changes (user_id, job_id, status, at) VALUES ($1, $2, 'applied', $3)`, userID, jobID, at)
+	}
+	return err
+}
