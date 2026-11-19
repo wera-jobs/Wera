@@ -198,6 +198,8 @@ func (s *Server) Handler() http.Handler {
 			r.Delete("/ext/tokens/{id}", s.deleteExtToken)
 			r.Get("/applicant", s.getApplicant)
 			r.Put("/applicant", s.putApplicant)
+			r.Get("/applicant/conflicts", s.applicantConflicts)
+			r.Post("/applicant/conflicts/resolve", s.resolveConflict)
 			r.Post("/applicant/suggest", s.suggestApplicant)
 			r.Post("/ext/extract", s.extractJob)
 			r.Get("/ext/jobs/lookup", s.lookupJob)
