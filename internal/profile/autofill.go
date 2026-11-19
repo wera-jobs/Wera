@@ -20,10 +20,12 @@ Return ONLY a JSON object: {"answers": [{"id": "<field id>", "value": "<answer>"
 
 Rules:
 - Use only facts from the data. Never invent employers, dates, numbers, degrees, links or credentials. Leave a field out when the data does not answer it.
-- An earlier answer to the same or a very similar question is the best source; reuse it.
+` + FactsRule + `
+- An earlier answer to the same or a very similar question is the best source; reuse it, unless it contradicts the facts.
 - For select, radio, buttons, listbox and combobox fields with options, the value must be exactly one of the options, copied as written.
 - For checkboxes with options, the value is one option, or several separated by " | ".
 - For a single checkbox, answer "yes" to tick it or leave it out.
+- Work authorization or sponsorship for a job or country other than the candidate's own: leave it out unless the candidate is a citizen of that country. The candidate answers it.
 - Never answer gender, race, ethnicity, sexual orientation, transgender, veteran, disability or other self-identification questions, legal agreements, signatures, consents or attestations: leave them out. The candidate answers those.
 - Dates as YYYY-MM-DD unless the label shows another format. Numbers as plain digits.
 - A start date or availability date is never before today. Use the candidate's stated start date only when it is still ahead; with only a notice period, count it from today; otherwise leave the field out.
@@ -120,7 +122,7 @@ func AutofillMessages(in AutofillInput) []scoring.Message {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Today: %s\n\n", day(in.Today))
-	fmt.Fprintf(&b, "<profile>\n%s\n\nApplication details: %s\n</profile>\n\n", scoring.Fence(cutRunes(in.Profile, 6000)), scoring.Fence(string(details)))
+	fmt.Fprintf(&b, "%s<profile>\n%s\n\nApplication details: %s\n</profile>\n\n", FactsBlock(in.Details), scoring.Fence(cutRunes(in.Profile, 6000)), scoring.Fence(string(details)))
 	if in.Resume != "" {
 		fmt.Fprintf(&b, "<resume>\n%s\n</resume>\n\n", scoring.Fence(cutRunes(in.Resume, 7000)))
 	}
@@ -236,6 +238,8 @@ func ParseAutofill(reply string, fields []FormField, today time.Time) ([]Suggest
 				v = "yes"
 			}
 		}
+		// An answer that also asks the candidate for something is a guess at best.
+		_, asks := SplitNeedsInput(v)
 		v = strings.TrimSpace(CleanLetter(v))
 		if v == "" || pastStart(f.Label, v, today) {
 			continue
@@ -266,7 +270,7 @@ func ParseAutofill(reply string, fields []FormField, today time.Time) ([]Suggest
 			v = cutRunes(v, limit)
 		}
 		conf := "low"
-		if a.Confidence == "high" {
+		if a.Confidence == "high" && asks == "" {
 			conf = "high"
 		}
 		seen[a.ID] = true

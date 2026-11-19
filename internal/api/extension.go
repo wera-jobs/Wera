@@ -523,14 +523,31 @@ func (s *Server) answerQuestion(w http.ResponseWriter, r *http.Request) {
 			prior = append(prior, profile.PriorAnswer{Question: sa.Question, Answer: sa.Answer})
 		}
 	}
-	reply, err := s.chatForUser(r.Context(), user.ID, "answer", 900, profile.AnswerMessages(profile.AnswerInput{
-		Question: in.Question, MaxWords: in.MaxWords, Profile: prof.Markdown, Resume: prof.ResumeText,
+	details, err := s.aiDetails(r.Context(), user)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	input := profile.AnswerInput{
+		Question: in.Question, MaxWords: in.MaxWords, Profile: prof.Markdown, Resume: prof.ResumeText, Details: details,
 		Company: company, Title: title, Description: desc, Prior: prior,
 		Instructions: strings.TrimSpace(in.Instructions), Draft: strings.TrimSpace(in.Draft), Today: time.Now(),
-	}))
+	}
+	reply, err := s.chatForUser(r.Context(), user.ID, "answer", 900, profile.AnswerMessages(input))
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, "the AI service did not answer; try again")
 		return
 	}
-	s.writeJSON(w, http.StatusOK, profile.ParseAnswer(reply, in.MaxWords))
+	answer := profile.ParseAnswer(reply, in.MaxWords)
+	// A draft the person didn't steer that breaks the answer rules (opens with what they lack,
+	// volunteers visa, salary or where they live) gets one rework; the better of the two is kept.
+	if fixes := profile.DraftFixes(in.Question, answer.Answer); answer.Answer != "" && input.Instructions == "" && len(fixes) > 0 {
+		input.Draft, input.Instructions = answer.Answer, profile.ReworkFor(fixes)
+		if again, err := s.chatForUser(r.Context(), user.ID, "answer", 900, profile.AnswerMessages(input)); err == nil {
+			if better := profile.ParseAnswer(again, in.MaxWords); better.Answer != "" && len(profile.DraftFixes(in.Question, better.Answer)) < len(fixes) {
+				answer = better
+			}
+		}
+	}
+	s.writeJSON(w, http.StatusOK, answer)
 }

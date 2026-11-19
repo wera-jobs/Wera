@@ -18,6 +18,7 @@ Write a letter a strong candidate would actually send:
 - If the candidate lacks something the posting emphasizes, address it honestly in one sentence by pointing to a related strength or how they learn quickly. Never invent experience, employers, numbers or credentials.
 - Sound natural, confident and warm. Avoid cliches such as "I am writing to express my interest", "passionate", "fast-paced", "synergy", "perfect fit", "hit the ground running".
 - Do not mention visa sponsorship, work authorization, salary or relocation unless the posting explicitly asks about them.
+` + FactsRule + `
 - Never use em dashes or en dashes; use commas, periods or parentheses instead.
 - No date line, addresses, subject line, placeholders or sign-off titles.`
 
@@ -34,6 +35,8 @@ type LetterInput struct {
 	Tone    string // one of LetterTones
 	Length  string // short, standard or long
 	Request string // free text: what to stress or leave out
+	// Details are the candidate's application details; they win over the profile and resume.
+	Details map[string]string
 }
 
 // LetterTones are the tones a letter can take ("" is the default voice).
@@ -67,7 +70,7 @@ func CoverLetterMessages(in LetterInput) []scoring.Message {
 		name = "the candidate (sign with no name)"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Candidate name: %s\n\n<profile>\n%s\n</profile>\n\n", scoring.Fence(name), scoring.Fence(in.Profile))
+	fmt.Fprintf(&b, "Candidate name: %s\n\n%s<profile>\n%s\n</profile>\n\n", scoring.Fence(name), FactsBlock(in.Details), scoring.Fence(in.Profile))
 	if resume != "" {
 		fmt.Fprintf(&b, "<resume>\n%s\n</resume>\n\n", scoring.Fence(resume))
 	}
@@ -109,7 +112,7 @@ const MaxLetterChars = 6000
 // markdown emphasis, em and en dashes replaced with commas (or a hyphen
 // between numbers), tidy blank lines, and a length cap.
 func CleanLetter(s string) string {
-	s = scoring.StripFences(strings.ReplaceAll(s, "\r\n", "\n"))
+	s, _ = SplitNeedsInput(scoring.StripFences(strings.ReplaceAll(s, "\r\n", "\n")))
 	s = mdEmphasis.ReplaceAllString(s, "$1$2")
 	s = spacedDash.ReplaceAllString(s, ", ")
 	// "2019, 2021" from a date range reads wrong; restore a hyphen there.
