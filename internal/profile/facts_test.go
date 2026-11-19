@@ -53,6 +53,9 @@ func TestEveryWritingPromptPutsTheFactsAboveTheProfile(t *testing.T) {
 			t.Errorf("%s: facts missing or after the profile", name)
 		}
 	}
+	if !strings.Contains(fill[0].Content, "only citizenship of that country settles it") || !strings.Contains(fill[0].Content, "other than the candidate's own: leave it out") {
+		t.Error("autofill lacks the rule that work-rights facts stop at the candidate's own country")
+	}
 	if !strings.Contains(answer[0].Content, "never open by saying they lack it") {
 		t.Error("answers lack the rule against opening with a disqualifier")
 	}

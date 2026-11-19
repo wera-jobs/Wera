@@ -25,6 +25,7 @@ Rules:
 - For select, radio, buttons, listbox and combobox fields with options, the value must be exactly one of the options, copied as written.
 - For checkboxes with options, the value is one option, or several separated by " | ".
 - For a single checkbox, answer "yes" to tick it or leave it out.
+- Work authorization or sponsorship for a job or country other than the candidate's own: leave it out unless the candidate is a citizen of that country. The candidate answers it.
 - Never answer gender, race, ethnicity, sexual orientation, transgender, veteran, disability or other self-identification questions, legal agreements, signatures, consents or attestations: leave them out. The candidate answers those.
 - Dates as YYYY-MM-DD unless the label shows another format. Numbers as plain digits.
 - A start date or availability date is never before today. Use the candidate's stated start date only when it is still ahead; with only a notice period, count it from today; otherwise leave the field out.
