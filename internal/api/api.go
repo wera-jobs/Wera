@@ -180,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/notifications", s.listNotifications)
 			r.Post("/notifications/read", s.readNotifications)
 			r.Get("/analytics/applications", s.applicationAnalytics)
+			r.Post("/applications/import", s.importApplications)
 			r.Get("/searches", s.listSearches)
 			r.Post("/searches", s.addSearch)
 			r.Patch("/searches/{id}", s.renameSearch)
