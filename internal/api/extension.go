@@ -523,8 +523,13 @@ func (s *Server) answerQuestion(w http.ResponseWriter, r *http.Request) {
 			prior = append(prior, profile.PriorAnswer{Question: sa.Question, Answer: sa.Answer})
 		}
 	}
+	details, err := s.aiDetails(r.Context(), user)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	reply, err := s.chatForUser(r.Context(), user.ID, "answer", 900, profile.AnswerMessages(profile.AnswerInput{
-		Question: in.Question, MaxWords: in.MaxWords, Profile: prof.Markdown, Resume: prof.ResumeText,
+		Question: in.Question, MaxWords: in.MaxWords, Profile: prof.Markdown, Resume: prof.ResumeText, Details: details,
 		Company: company, Title: title, Description: desc, Prior: prior,
 		Instructions: strings.TrimSpace(in.Instructions), Draft: strings.TrimSpace(in.Draft), Today: time.Now(),
 	}))

@@ -114,10 +114,15 @@ func (s *Server) generateCoverLetter(w http.ResponseWriter, r *http.Request) {
 	// The fast model writes letters well; the deep (reasoning) model spent
 	// its whole token budget thinking and cost ~40x more per letter.
 	model := s.Env.AI.Model
+	details, err := s.aiDetails(r.Context(), user)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	reply, err := s.chatWithModel(r.Context(), user.ID, "cover_letter", model, 1500, profile.CoverLetterMessages(profile.LetterInput{
 		CandidateName: user.Name, Profile: prof.Markdown, Resume: prof.ResumeText,
 		Company: job.Company, Title: job.Title, Location: loc, Description: desc,
-		Tone: in.Tone, Length: in.Length, Request: in.Request,
+		Tone: in.Tone, Length: in.Length, Request: in.Request, Details: details,
 	}))
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, "the AI service did not answer; try again")
