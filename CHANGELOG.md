@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/wera-jobs/Wera/compare/wera-v0.26.0...wera-v0.27.0) (2026-11-19)
+
+
+### Features
+
+* **api:** saved searches ([a152926](https://github.com/wera-jobs/Wera/commit/a152926ea68ed2c78ae76303ac2a70c0f45065e5)), closes [#197](https://github.com/wera-jobs/Wera/issues/197)
+
 ## [0.26.0](https://github.com/wera-jobs/Wera/compare/wera-v0.25.0...wera-v0.26.0) (2026-11-19)
 
 
