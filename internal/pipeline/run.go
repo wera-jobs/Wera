@@ -89,6 +89,7 @@ func (p *Pipeline) RunOnce(ctx context.Context) (ran bool, err error) {
 	var scoreErr error
 	if fetchErr == nil {
 		p.closeUnreadBoards(ctx, fstats)
+		FillPay(ctx, p.Pool, p.Log)
 		p.embedBackfill(ctx)
 		excluded, sstats, scoreErr = p.matchAll(ctx)
 	}
@@ -366,3 +367,23 @@ func (p *Pipeline) housekeeping(ctx context.Context) {
 
 // pruneTime bounds the pruning in one run; the next run continues.
 const pruneTime = 5 * time.Minute
+
+// FillPay reads the stated pay of every open job saved before pay was
+// read (see store.FillPay), in batches; failures are logged, never fatal.
+func FillPay(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) {
+	total := 0
+	for range 200 {
+		n, err := store.FillPay(ctx, pool, 2000)
+		if err != nil {
+			log.Warn("reading pay from postings failed", "err", err)
+			return
+		}
+		total += n
+		if n == 0 {
+			break
+		}
+	}
+	if total > 0 {
+		log.Info("read pay from postings", "jobs", total)
+	}
+}

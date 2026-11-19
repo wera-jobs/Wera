@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ type JobQuery struct {
 	Industry     string
 	Category     string
 	MinScore     int
+	MinPay       int    // a year's pay (an hourly rate counts 2,080 hours); jobs stating no pay are left out
 	Sponsorship  string // "yes" | "unknown" (only these two are meaningful)
 	WorkMode     string
 	Status       string // application status
@@ -67,6 +69,44 @@ type JobView struct {
 	AutofilledAt *time.Time `json:"autofilled_at"`
 	// ClosedAt is when the posting came down (nil: still open).
 	ClosedAt *time.Time `json:"closed_at"`
+	// The pay the posting states (see internal/pay); nil when it states none.
+	PayMin      *float64 `json:"pay_min"`
+	PayMax      *float64 `json:"pay_max"`
+	PayCurrency *string  `json:"pay_currency"`
+	PayPeriod   *string  `json:"pay_period"`
+	// FitParts are the ratings the fit score was computed from (see
+	// scoring.Ratings.Score); nil for jobs scored before ratings existed.
+	FitParts *FitParts `json:"fit_parts"`
+	ratings  *string   // the ratings object as the model wrote it, parsed by finish
+}
+
+// FitParts are a scored job's parts of fit, each 0-10, and whether
+// something rules the job out (a blocker), as the scorer rated them.
+type FitParts struct {
+	Role      int  `json:"role"`
+	Seniority int  `json:"seniority"`
+	Skills    int  `json:"skills"`
+	Domain    int  `json:"domain"`
+	Location  int  `json:"location"`
+	Blocker   bool `json:"blocker"`
+}
+
+// finish fills what a scan leaves raw: the fit parts, parsed leniently
+// (a reply that doesn't parse, or rates outside 0-10, gives none).
+func (v *JobView) finish() {
+	if v.ratings == nil || v.FitScore == nil {
+		return
+	}
+	var p FitParts
+	if json.Unmarshal([]byte(*v.ratings), &p) != nil {
+		return
+	}
+	for _, r := range []int{p.Role, p.Seniority, p.Skills, p.Domain, p.Location} {
+		if r < 0 || r > 10 {
+			return
+		}
+	}
+	v.FitParts = &p
 }
 
 // jobViewSelect selects one user's view of jobs: their rule outcome,
@@ -83,7 +123,8 @@ const jobViewSelect = `
 	       ap.status, ap.notes, uj.estimated_score,
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
-	       j.closed_at
+	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
+	       substring(a.raw #>> '{}' from '"ratings"\s*:\s*(\{[^}]*\})')
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -102,7 +143,8 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt}
+		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings}
 }
 
 // normalizeLimit clamps a page size for API queries.
@@ -174,6 +216,10 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 		args = append(args, q.MinScore)
 		where = append(where, fmt.Sprintf("a.fit_score >= $%d", len(args)))
 	}
+	if q.MinPay > 0 {
+		args = append(args, q.MinPay)
+		where = append(where, fmt.Sprintf("COALESCE(j.pay_max, j.pay_min) * CASE j.pay_period WHEN 'hour' THEN 2080 ELSE 1 END >= $%d", len(args)))
+	}
 	if q.Sponsorship != "" {
 		args = append(args, q.Sponsorship)
 		where = append(where, fmt.Sprintf("a.sponsorship = $%d", len(args)))
@@ -225,6 +271,7 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 		if err := rows.Scan(jobViewScan(&v)...); err != nil {
 			return nil, err
 		}
+		v.finish()
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -239,6 +286,7 @@ func GetJob(ctx context.Context, pool *pgxpool.Pool, userID, id int64) (*JobView
 	if err != nil {
 		return nil, err
 	}
+	v.finish()
 	return &v, nil
 }
 

@@ -77,6 +77,7 @@ func queryJobViews(ctx context.Context, pool *pgxpool.Pool, sqlText string, args
 		if err := rows.Scan(jobViewScan(&v)...); err != nil {
 			return nil, err
 		}
+		v.finish()
 		out = append(out, v)
 	}
 	return out, rows.Err()
