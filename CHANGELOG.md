@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.0](https://github.com/wera-jobs/Wera/compare/wera-v0.32.0...wera-v0.33.0) (2026-11-19)
+
+
+### Features
+
+* **api:** connect the extension from the dashboard, without a password ([eb05897](https://github.com/wera-jobs/Wera/commit/eb05897eb23b31f8412d0d4a94d1e988a58b8ff0))
+* **api:** how a job's posted pay compares with H-1B wages ([e997bbd](https://github.com/wera-jobs/Wera/commit/e997bbde74c00969d6c6259f62c226c3d4417168)), closes [#202](https://github.com/wera-jobs/Wera/issues/202)
+
 ## [0.32.0](https://github.com/wera-jobs/Wera/compare/wera-v0.31.0...wera-v0.32.0) (2026-11-19)
 
 
