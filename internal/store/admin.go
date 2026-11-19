@@ -283,6 +283,7 @@ type Overview struct {
 	EmailQueued     int64      `json:"email_queued"`
 	EmailFailedWeek int64      `json:"email_failed_7d"`
 	ContentHidden   int64      `json:"content_hidden"`
+	ReportsOpen     int64      `json:"reports_open"`
 	LastRunAt       *time.Time `json:"last_run_at"`
 	LastRunStatus   *string    `json:"last_run_status"`
 }
@@ -307,11 +308,12 @@ func AdminOverview(ctx context.Context, pool *pgxpool.Pool) (*Overview, error) {
 		       (SELECT count(*) FROM email_outbox WHERE status = 'queued'),
 		       (SELECT count(*) FROM email_outbox WHERE status = 'failed' AND created_at > now() - interval '7 days'),
 		       (SELECT count(*) FROM posts WHERE status <> 'published') + (SELECT count(*) FROM post_comments WHERE status <> 'published'),
+		       (SELECT count(*) FROM problem_reports WHERE resolved_at IS NULL),
 		       (SELECT started_at FROM runs ORDER BY id DESC LIMIT 1),
 		       (SELECT status FROM runs ORDER BY id DESC LIMIT 1)`).
 		Scan(&o.Users, &o.UsersReady, &o.SignupsWeek, &o.ActiveWeek, &o.Admins, &o.CompaniesOn, &o.CompaniesFailed,
 			&o.JobsOpen, &o.JobsNewDay, &o.JobsAdded, &o.PendingScores, &o.MonthSpendUSD, &o.EmailQueued,
-			&o.EmailFailedWeek, &o.ContentHidden, &o.LastRunAt, &o.LastRunStatus)
+			&o.EmailFailedWeek, &o.ContentHidden, &o.ReportsOpen, &o.LastRunAt, &o.LastRunStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return &o, nil
 	}
