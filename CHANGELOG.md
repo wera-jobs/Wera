@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.22.0](https://github.com/wera-jobs/Wera/compare/wera-v0.21.0...wera-v0.22.0) (2026-11-19)
+
+
+### Features
+
+* **api:** list where application details disagree with the profile ([336f707](https://github.com/wera-jobs/Wera/commit/336f7070ba38ef283929356cf802dfa3efc411a7))
+
+
+### Bug Fixes
+
+* **api:** give answers and cover letters the application details ([d9dfe60](https://github.com/wera-jobs/Wera/commit/d9dfe605eeb549a5091fd8dd431de6859da9da0c))
+* **api:** rework a drafted answer that breaks the answer rules ([196d06c](https://github.com/wera-jobs/Wera/commit/196d06c6e8dd2e8b6ddc4a87e7c6961386222ef2))
+* **profile:** application details win over the profile and resume in AI writing ([59d33ea](https://github.com/wera-jobs/Wera/commit/59d33ea2f6fa4bac6eaa103a8f39fb77ded58ee3))
+* **profile:** never let the AI's request marker reach a form ([c044334](https://github.com/wera-jobs/Wera/commit/c0443347567892bcb48a135bdb686d442ea52c80))
+* **profile:** work-rights facts stop at the candidate's own country ([d778db1](https://github.com/wera-jobs/Wera/commit/d778db189828b3c08b71fa87325e468f847398ad))
+
 ## [0.21.0](https://github.com/wera-jobs/Wera/compare/wera-v0.20.3...wera-v0.21.0) (2026-11-19)
 
 
