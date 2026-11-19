@@ -275,6 +275,16 @@ func TestExtensionAIFeatures(t *testing.T) {
 	if _, body = do(t, client, http.MethodPost, ts.URL+"/api/ext/answer", `{"question":"What are your salary expectations?"}`); !strings.Contains(body, `"needs_input"`) {
 		t.Errorf("salary should ask the user: %s", body)
 	}
+	// A draft that opens with what the candidate lacks is reworked once, and the rework kept.
+	calls := llm.calls.Load()
+	if _, body = do(t, client, http.MethodPost, ts.URL+"/api/ext/answer", `{"question":"Describe your experience with product partnerships.","company":"Acme","title":"PM"}`); !strings.Contains(body, "I ran projects end to end at Acme") || llm.calls.Load()-calls != 2 {
+		t.Errorf("rule-breaking draft not reworked (%d calls): %s", llm.calls.Load()-calls, body)
+	}
+	// The person's own steer is theirs: no second-guessing it.
+	calls = llm.calls.Load()
+	if _, body = do(t, client, http.MethodPost, ts.URL+"/api/ext/answer", `{"question":"Describe your experience with product partnerships.","company":"Acme","title":"PM","draft":"x","instructions":"say I have not done it"}`); llm.calls.Load()-calls != 1 || !strings.Contains(body, "I have not worked in partnerships") {
+		t.Errorf("steered draft was reworked: %s", body)
+	}
 	// A rework: the draft and the user's steer are taken; a steer past the limit is refused.
 	if code, _ = do(t, client, http.MethodPost, ts.URL+"/api/ext/answer", `{"question":"Why do you want to work at Acme?","company":"Acme","title":"SRE","draft":"Robots.","instructions":"shorter"}`); code != http.StatusOK {
 		t.Errorf("rework: %d", code)
