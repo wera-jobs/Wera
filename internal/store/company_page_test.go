@@ -33,7 +33,7 @@ func TestCompanyPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != name || p.OpenJobs != 2 || len(p.Matches) != 1 || p.Matches[0].ID != ids[0] || len(p.Roles) != 2 || p.Sponsorship["yes"] != 1 || p.Followed {
+	if p.Name != name || p.OpenJobs != 2 || p.MatchCount != 1 || len(p.Matches) != 1 || p.Matches[0].ID != ids[0] || len(p.Roles) != 2 || p.Sponsorship["yes"] != 1 || p.Followed {
 		t.Errorf("page: %+v", p)
 	}
 	matched := 0

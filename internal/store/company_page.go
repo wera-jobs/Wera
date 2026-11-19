@@ -12,16 +12,19 @@ import (
 // CompanyPage is everything the dashboard's company page shows, but the
 // H-1B history (see CompanyH1BKeys).
 type CompanyPage struct {
-	ID       int64      `json:"id"`
-	Name     string     `json:"name"`
-	Industry string     `json:"industry"`
-	ATS      string     `json:"ats"`
-	LogoURL  string     `json:"logo_url,omitempty"`
-	Hidden   bool       `json:"hidden"`
-	Followed bool       `json:"followed"`
-	OpenJobs int        `json:"open_jobs"`
-	Matches  []JobView  `json:"matches"` // the user's matches there, best first
-	Roles    []OpenRole `json:"roles"`   // every open role, newest first (up to 200)
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Industry string `json:"industry"`
+	ATS      string `json:"ats"`
+	LogoURL  string `json:"logo_url,omitempty"`
+	Hidden   bool   `json:"hidden"`
+	Followed bool   `json:"followed"`
+	OpenJobs int    `json:"open_jobs"`
+	// MatchCount is how many open matches the user has there; Matches
+	// lists the best of them (up to 24).
+	MatchCount int        `json:"match_count"`
+	Matches    []JobView  `json:"matches"`
+	Roles      []OpenRole `json:"roles"` // every open role, newest first (up to 200)
 	// Sponsorship: what the user's scored postings there say about visa
 	// sponsorship (yes, no, unknown), as counts.
 	Sponsorship map[string]int `json:"sponsorship"`
@@ -63,11 +66,18 @@ func GetCompanyPage(ctx context.Context, pool *pgxpool.Pool, userID, companyID i
 	if p.Matches, err = queryJobViews(ctx, pool, jobViewSelect+`
 	  AND j.company_id = $2 AND j.closed_at IS NULL AND uj.stage IN ('scored', 'pending_score')
 	ORDER BY coalesce(a.fit_score, uj.estimated_score) DESC NULLS LAST, j.first_seen_at DESC
-	LIMIT 100`, userID, companyID); err != nil {
+	LIMIT 24`, userID, companyID); err != nil {
 		return nil, fmt.Errorf("company matches: %w", err)
 	}
 	if p.Matches == nil {
 		p.Matches = []JobView{}
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
+		WHERE uj.user_id = $1 AND j.company_id = $2 AND j.closed_at IS NULL AND uj.stage IN ('scored', 'pending_score')
+		  AND NOT EXISTS (SELECT 1 FROM user_hidden_companies h WHERE h.user_id = $1 AND h.company_id = $2)`,
+		userID, companyID).Scan(&p.MatchCount); err != nil {
+		return nil, fmt.Errorf("company match count: %w", err)
 	}
 	rows, err := pool.Query(ctx, `
 		SELECT j.id, j.title, coalesce(j.location_raw, ''), j.url, j.posted_at, j.first_seen_at,
