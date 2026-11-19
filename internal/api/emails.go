@@ -56,6 +56,15 @@ func (s *Server) emailDraft(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusConflict, "track this job first: save it or mark it applied")
 		return
 	}
+	events, err := store.JobEvents(r.Context(), s.Pool, user.ID, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if why := emailNotYet(in.Kind, *job.AppStatus, events); why != "" {
+		s.writeError(w, http.StatusConflict, why)
+		return
+	}
 	if !s.emailLimit.Allow(strconv.FormatInt(user.ID, 10)) {
 		s.writeError(w, http.StatusTooManyRequests, "too many drafts this hour; try again later")
 		return
@@ -106,7 +115,7 @@ func (s *Server) emailDraft(w http.ResponseWriter, r *http.Request) {
 	if err := s.Pool.QueryRow(r.Context(), `SELECT applied_at FROM applications WHERE user_id = $1 AND job_id = $2`, user.ID, id).Scan(&applied); err == nil {
 		input.AppliedAt = applied
 	}
-	if events, err := store.JobEvents(r.Context(), s.Pool, user.ID, id); err == nil {
+	{
 		for _, e := range events {
 			line := fmt.Sprintf("%s on %s", strings.ReplaceAll(e.Kind, "_", " "), e.At.UTC().Format("January 2, 2006"))
 			if e.With != "" {
@@ -148,4 +157,33 @@ func (s *Server) emailDraft(w http.ResponseWriter, r *http.Request) {
 		draft.Subject = job.Title + " at " + job.Company
 	}
 	s.writeJSON(w, http.StatusOK, draft)
+}
+
+// emailNotYet says why a kind of email doesn't fit the application yet,
+// or "" when it does: a follow-up needs an application, a thank-you an
+// interview, an offer reply an offer. A draft written on a false premise
+// ("following up on my application" for a job only saved) misleads.
+func emailNotYet(kind, status string, events []store.Event) string {
+	sent := status == "applied" || status == "interviewing" || status == "offer"
+	switch kind {
+	case "follow_up":
+		if !sent {
+			return "mark the job applied first: a follow-up is about an application"
+		}
+	case "thank_you":
+		interviewed := status == "interviewing" || status == "offer"
+		for _, e := range events {
+			if e.Kind != "assessment" && e.At.Before(time.Now()) {
+				interviewed = true
+			}
+		}
+		if !interviewed {
+			return "add the interview first (or mark the job interviewing): a thank-you follows one"
+		}
+	case "offer_reply":
+		if status != "offer" {
+			return "mark the job Offer first: this replies to an offer"
+		}
+	}
+	return ""
 }
