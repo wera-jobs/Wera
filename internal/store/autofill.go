@@ -20,16 +20,28 @@ type AutofillRun struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// RunFiles is what the extension attached on a run: the resume (its kind,
+// tailored, base or upload, and file name) and whether a cover letter.
+// A page without an attachment leaves the run's as they are.
+type RunFiles struct {
+	ResumeKind string
+	ResumeName string
+	Letter     bool
+}
+
+// ResumeKinds mirrors the resume_kind constraints.
+var ResumeKinds = map[string]bool{"tailored": true, "base": true, "upload": true}
+
 // StartAutofillRun records a new run. A job id the user does not have is
 // dropped, so a run never points at someone else's job. A job being
 // applied to joins the tracker (as saved) if it was not there yet.
-func StartAutofillRun(ctx context.Context, pool *pgxpool.Pool, userID int64, jobID *int64, host string, filled, suggested int) (*AutofillRun, error) {
+func StartAutofillRun(ctx context.Context, pool *pgxpool.Pool, userID int64, jobID *int64, host string, filled, suggested int, files RunFiles) (*AutofillRun, error) {
 	r := &AutofillRun{}
 	err := pool.QueryRow(ctx, `
-		INSERT INTO autofill_runs (user_id, job_id, host, filled, suggested)
-		VALUES ($1, (SELECT job_id FROM user_jobs WHERE user_id = $1 AND job_id = $2), $3, $4, $5)
+		INSERT INTO autofill_runs (user_id, job_id, host, filled, suggested, resume_kind, resume_name, letter)
+		VALUES ($1, (SELECT job_id FROM user_jobs WHERE user_id = $1 AND job_id = $2), $3, $4, $5, nullif($6, ''), nullif($7, ''), $8)
 		RETURNING id, job_id, host, pages, filled, suggested, created_at, updated_at`,
-		userID, jobID, host, filled, suggested).Scan(&r.ID, &r.JobID, &r.Host, &r.Pages, &r.Filled, &r.Suggested, &r.CreatedAt, &r.UpdatedAt)
+		userID, jobID, host, filled, suggested, files.ResumeKind, files.ResumeName, files.Letter).Scan(&r.ID, &r.JobID, &r.Host, &r.Pages, &r.Filled, &r.Suggested, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil || r.JobID == nil {
 		return r, err
 	}
@@ -41,13 +53,15 @@ func StartAutofillRun(ctx context.Context, pool *pgxpool.Pool, userID int64, job
 
 // AddAutofillPage counts one more page of a run and its fields
 // (pgx.ErrNoRows if the run is not the user's).
-func AddAutofillPage(ctx context.Context, pool *pgxpool.Pool, userID, id int64, filled, suggested int) (*AutofillRun, error) {
+func AddAutofillPage(ctx context.Context, pool *pgxpool.Pool, userID, id int64, filled, suggested int, files RunFiles) (*AutofillRun, error) {
 	r := &AutofillRun{}
 	err := pool.QueryRow(ctx, `
-		UPDATE autofill_runs SET pages = pages + 1, filled = filled + $3, suggested = suggested + $4, updated_at = now()
+		UPDATE autofill_runs SET pages = pages + 1, filled = filled + $3, suggested = suggested + $4, updated_at = now(),
+		  resume_kind = coalesce(nullif($5, ''), resume_kind), resume_name = coalesce(nullif($6, ''), resume_name),
+		  letter = letter OR $7
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, job_id, host, pages, filled, suggested, created_at, updated_at`,
-		id, userID, filled, suggested).Scan(&r.ID, &r.JobID, &r.Host, &r.Pages, &r.Filled, &r.Suggested, &r.CreatedAt, &r.UpdatedAt)
+		id, userID, filled, suggested, files.ResumeKind, files.ResumeName, files.Letter).Scan(&r.ID, &r.JobID, &r.Host, &r.Pages, &r.Filled, &r.Suggested, &r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
 
