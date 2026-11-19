@@ -14,6 +14,7 @@ type JobQuery struct {
 	Industry     string
 	Category     string
 	MinScore     int
+	MinPay       int    // a year's pay (an hourly rate counts 2,080 hours); jobs stating no pay are left out
 	Sponsorship  string // "yes" | "unknown" (only these two are meaningful)
 	WorkMode     string
 	Status       string // application status
@@ -67,6 +68,11 @@ type JobView struct {
 	AutofilledAt *time.Time `json:"autofilled_at"`
 	// ClosedAt is when the posting came down (nil: still open).
 	ClosedAt *time.Time `json:"closed_at"`
+	// The pay the posting states (see internal/pay); nil when it states none.
+	PayMin      *float64 `json:"pay_min"`
+	PayMax      *float64 `json:"pay_max"`
+	PayCurrency *string  `json:"pay_currency"`
+	PayPeriod   *string  `json:"pay_period"`
 }
 
 // jobViewSelect selects one user's view of jobs: their rule outcome,
@@ -83,7 +89,7 @@ const jobViewSelect = `
 	       ap.status, ap.notes, uj.estimated_score,
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
-	       j.closed_at
+	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -102,7 +108,8 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt}
+		&v.AppStatus, &v.AppNotes, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod}
 }
 
 // normalizeLimit clamps a page size for API queries.
@@ -173,6 +180,10 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	if q.MinScore > 0 {
 		args = append(args, q.MinScore)
 		where = append(where, fmt.Sprintf("a.fit_score >= $%d", len(args)))
+	}
+	if q.MinPay > 0 {
+		args = append(args, q.MinPay)
+		where = append(where, fmt.Sprintf("COALESCE(j.pay_max, j.pay_min) * CASE j.pay_period WHEN 'hour' THEN 2080 ELSE 1 END >= $%d", len(args)))
 	}
 	if q.Sponsorship != "" {
 		args = append(args, q.Sponsorship)

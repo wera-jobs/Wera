@@ -336,6 +336,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	since, _ := time.Parse("2006-01-02", q.Get("since"))
 	minScore, _ := strconv.Atoi(q.Get("min_score"))
+	minPay, _ := strconv.Atoi(q.Get("min_pay"))
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	postedWithin, _ := strconv.Atoi(q.Get("posted_within"))
@@ -344,6 +345,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		Industry:     q.Get("industry"),
 		Category:     q.Get("category"),
 		MinScore:     minScore,
+		MinPay:       minPay,
 		Sponsorship:  q.Get("sponsorship"),
 		WorkMode:     q.Get("work_mode"),
 		Status:       q.Get("status"),

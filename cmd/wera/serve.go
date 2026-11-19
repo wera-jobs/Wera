@@ -110,6 +110,8 @@ func runServe(ctx context.Context, args []string) error {
 		}
 		return ran, err
 	}
+	// Jobs saved before pay was read get it now, without waiting for the next run.
+	go pipeline.FillPay(ctx, pool, log)
 	boards := pipeline.NewSourceRegistry(env)
 	srv := &api.Server{
 		Pool:        pool,

@@ -73,8 +73,9 @@ func SaveJobs(ctx context.Context, pool *pgxpool.Pool, jobs []JobInput) (seen, n
 	const q = `
 		INSERT INTO jobs (company_id, source, ext_id, title, location_raw,
 		                  is_remote, url, department, description,
-		                  content_hash, posted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		                  content_hash, posted_at,
+		                  pay_min, pay_max, pay_currency, pay_period, pay_checked)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, true)
 		ON CONFLICT (source, ext_id) DO UPDATE
 		SET title           = EXCLUDED.title,
 		    location_raw    = EXCLUDED.location_raw,
@@ -84,6 +85,11 @@ func SaveJobs(ctx context.Context, pool *pgxpool.Pool, jobs []JobInput) (seen, n
 		    description     = EXCLUDED.description,
 		    content_hash    = EXCLUDED.content_hash,
 		    posted_at       = EXCLUDED.posted_at,
+		    pay_min         = EXCLUDED.pay_min,
+		    pay_max         = EXCLUDED.pay_max,
+		    pay_currency    = EXCLUDED.pay_currency,
+		    pay_period      = EXCLUDED.pay_period,
+		    pay_checked     = true,
 		    last_seen_at    = now(),
 		    changed_at      = CASE WHEN jobs.closed_at IS NOT NULL OR jobs.content_hash <> EXCLUDED.content_hash
 		                           THEN now() ELSE jobs.changed_at END,
@@ -92,8 +98,10 @@ func SaveJobs(ctx context.Context, pool *pgxpool.Pool, jobs []JobInput) (seen, n
 
 	b := &pgx.Batch{}
 	for _, j := range jobs {
+		lo, hi, cur, per := payArgs(j.Description)
 		b.Queue(q, j.CompanyID, j.Source, j.ExtID, j.Title, j.LocationRaw,
-			j.IsRemote, j.URL, j.Department, j.Description, j.ContentHash, j.PostedAt)
+			j.IsRemote, j.URL, j.Department, j.Description, j.ContentHash, j.PostedAt,
+			lo, hi, cur, per)
 	}
 	br := pool.SendBatch(ctx, b)
 	defer br.Close()
