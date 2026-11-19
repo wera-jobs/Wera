@@ -88,9 +88,9 @@ type Answer struct {
 // ParseAnswer cleans the reply (no dashes, no fences) and trims it to the
 // word limit.
 func ParseAnswer(reply string, maxWords int) Answer {
-	s := strings.TrimSpace(scoring.StripFences(reply))
-	if rest, ok := strings.CutPrefix(s, "NEEDS_INPUT:"); ok {
-		return Answer{NeedsInput: strings.TrimSpace(rest)}
+	s, needs := SplitNeedsInput(strings.TrimSpace(scoring.StripFences(reply)))
+	if s == "" {
+		return Answer{NeedsInput: needs}
 	}
 	s = CleanLetter(s)
 	if maxWords <= 0 {
@@ -99,5 +99,5 @@ func ParseAnswer(reply string, maxWords int) Answer {
 	if w := strings.Fields(s); len(w) > maxWords+maxWords/5 {
 		s = strings.Join(w[:maxWords], " ")
 	}
-	return Answer{Answer: s}
+	return Answer{Answer: s, NeedsInput: needs}
 }

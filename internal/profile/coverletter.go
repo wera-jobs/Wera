@@ -109,7 +109,7 @@ const MaxLetterChars = 6000
 // markdown emphasis, em and en dashes replaced with commas (or a hyphen
 // between numbers), tidy blank lines, and a length cap.
 func CleanLetter(s string) string {
-	s = scoring.StripFences(strings.ReplaceAll(s, "\r\n", "\n"))
+	s, _ = SplitNeedsInput(scoring.StripFences(strings.ReplaceAll(s, "\r\n", "\n")))
 	s = mdEmphasis.ReplaceAllString(s, "$1$2")
 	s = spacedDash.ReplaceAllString(s, ", ")
 	// "2019, 2021" from a date range reads wrong; restore a hyphen there.

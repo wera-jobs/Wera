@@ -236,6 +236,8 @@ func ParseAutofill(reply string, fields []FormField, today time.Time) ([]Suggest
 				v = "yes"
 			}
 		}
+		// An answer that also asks the candidate for something is a guess at best.
+		_, asks := SplitNeedsInput(v)
 		v = strings.TrimSpace(CleanLetter(v))
 		if v == "" || pastStart(f.Label, v, today) {
 			continue
@@ -266,7 +268,7 @@ func ParseAutofill(reply string, fields []FormField, today time.Time) ([]Suggest
 			v = cutRunes(v, limit)
 		}
 		conf := "low"
-		if a.Confidence == "high" {
+		if a.Confidence == "high" && asks == "" {
 			conf = "high"
 		}
 		seen[a.ID] = true
