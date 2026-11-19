@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/wera-jobs/Wera/compare/wera-v0.25.0...wera-v0.26.0) (2026-11-19)
+
+
+### Features
+
+* **api:** in-app notifications for strong matches, closed postings and reminders ([1d8c873](https://github.com/wera-jobs/Wera/commit/1d8c87375d65af967a21598a875f52de8a8ecb30)), closes [#196](https://github.com/wera-jobs/Wera/issues/196)
+
 ## [0.25.0](https://github.com/wera-jobs/Wera/compare/wera-v0.24.0...wera-v0.25.0) (2026-11-19)
 
 
