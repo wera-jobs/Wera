@@ -15,6 +15,7 @@ import (
 
 	"wera/internal/config"
 	"wera/internal/moderation"
+	"wera/internal/store"
 	"wera/internal/testutil"
 )
 
@@ -71,6 +72,17 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			content = "NEEDS_INPUT: your expected salary"
 		default:
 			content = "I want to keep robots online — because reliability work is what I do best."
+		}
+	case strings.HasPrefix(system, "You draft one short email"):
+		user := req.Messages[len(req.Messages)-1].Content
+		switch {
+		// Volunteers sponsorship first, then keeps the rule when asked to rework.
+		case strings.Contains(user, "request to a contact for a referral"):
+			content = "Subject: Referral for SRE\n\nHello Sam,\n\nCould you refer me for the Site Reliability Engineer role? I will need visa sponsorship, and I can send my resume and a two-line summary to make it easy. No worries if it's not a fit.\n\nThanks,\nTest User"
+		case strings.Contains(user, "Rework this draft"):
+			content = "Subject: Referral for SRE\n\nHello Sam,\n\nCould you refer me for the Site Reliability Engineer role? Keeping robots online is the work I do best, and I can send my resume and a two-line summary to make it easy. No worries if it's not a fit.\n\nThanks,\nTest User"
+		default:
+			content = "Subject: Following up on the SRE application\n\nHello,\n\nI applied for the Site Reliability Engineer role and remain very interested — keeping robots online is the work I do best. I have run on-call rotations and automated deploys, which matches what the posting describes. Could you share where things stand?\n\nThanks,\nTest User\nNEEDS_INPUT: the recruiter's name, if you have it"
 		}
 	case strings.HasPrefix(system, "You fill in one page of a job application form"):
 		// A good answer, an option that is not offered, and an unknown field.
@@ -295,5 +307,48 @@ func TestChangePassword(t *testing.T) {
 	}
 	if code, _ := do(t, user, http.MethodDelete, ts.URL+"/api/auth/account", `{"password":"second password 2"}`); code != 204 {
 		t.Errorf("new password does not work: %d", code)
+	}
+}
+
+func TestEmailDrafts(t *testing.T) {
+	ts, llm := llmServer(t)
+	pool := testPool(t)
+	testutil.Profile(t, pool, testUserID, "# Candidate Profile\n## Target roles\nSRE.", config.Preferences{
+		RoleFamilies: []string{"sre"}, Levels: []string{"entry"}, MaxYearsRequired: 3})
+	id := testJobIDs[0]
+	url := fmt.Sprintf("%s/api/jobs/%d/email-draft", ts.URL, id)
+	pool.Exec(context.Background(), `DELETE FROM applications WHERE user_id = $1 AND job_id = $2`, testUserID, id)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM applications WHERE user_id = $1 AND job_id = $2`, testUserID, id)
+	})
+	if code, _ := do(t, client, http.MethodPost, url, `{"kind":"follow_up"}`); code != 409 {
+		t.Errorf("untracked job: want 409, got %d", code)
+	}
+	if err := store.PutApplication(context.Background(), pool, testUserID, id, store.ApplicationInput{Status: "applied"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := do(t, client, http.MethodPost, url, `{"kind":"cold_call"}`); code != 400 {
+		t.Errorf("unknown kind: want 400, got %d", code)
+	}
+	code, body := do(t, client, http.MethodPost, url, `{"kind":"follow_up"}`)
+	var e struct{ Subject, Body, Needs string }
+	_ = json.Unmarshal([]byte(body), &e)
+	if code != 200 || e.Subject != "Following up on the SRE application" || strings.Contains(e.Body, "—") || strings.Contains(e.Body, "NEEDS") || !strings.Contains(e.Needs, "recruiter") {
+		t.Errorf("follow-up: %d %+v", code, e)
+	}
+	if u, _ := llm.lastUser.Load().(string); !strings.Contains(u, "Status: applied") {
+		t.Errorf("the tracker wasn't sent: %s", u)
+	}
+	// A thank-you needs an interview, an offer reply an offer.
+	for _, kind := range []string{"thank_you", "offer_reply"} {
+		if code, body := do(t, client, http.MethodPost, url, `{"kind":"`+kind+`"}`); code != 409 {
+			t.Errorf("%s on an applied job: want 409, got %d %s", kind, code, body)
+		}
+	}
+	before := llm.calls.Load()
+	code, body = do(t, client, http.MethodPost, url, `{"kind":"referral_request"}`)
+	_ = json.Unmarshal([]byte(body), &e)
+	if code != 200 || strings.Contains(e.Body, "sponsorship") || llm.calls.Load()-before != 2 {
+		t.Errorf("referral: %d %+v after %d calls", code, e, llm.calls.Load()-before)
 	}
 }

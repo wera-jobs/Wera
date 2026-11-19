@@ -87,6 +87,7 @@ type Server struct {
 	draftLimit   *auth.Limiter
 	scoreLimit   *auth.Limiter
 	letterLimit  *auth.Limiter
+	emailLimit   *auth.Limiter
 	postLimit    *auth.Limiter
 	commentLimit *auth.Limiter
 	extAILimit   *auth.Limiter
@@ -127,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	s.draftLimit = auth.NewLimiter(10, time.Hour)
 	s.scoreLimit = auth.NewLimiter(120, time.Hour)
 	s.letterLimit = auth.NewLimiter(20, time.Hour)
+	s.emailLimit = auth.NewLimiter(30, time.Hour)
 	s.postLimit = auth.NewLimiter(5, time.Hour)
 	s.commentLimit = auth.NewLimiter(30, time.Hour)
 	s.extAILimit = auth.NewLimiter(120, time.Hour)
@@ -185,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/jobs/{id}/score", s.scoreJob)
 			r.Get("/jobs/{id}/cover-letter", s.getCoverLetter)
 			r.Post("/jobs/{id}/cover-letter", s.generateCoverLetter)
+			r.Post("/jobs/{id}/email-draft", s.emailDraft)
 			r.Put("/jobs/{id}/cover-letter", s.putCoverLetter)
 			r.Get("/jobs/{id}/cover-letter/pdf", s.coverLetterPDF)
 
