@@ -80,8 +80,8 @@ type JobView struct {
 	// Early: the posting went up in the last three days and Wera found it
 	// within a day of that, so applying now puts the user among the first.
 	// Never claimed for a posting with no date.
-	Early bool `json:"early"`
-	ratings  *string   // the ratings object as the model wrote it, parsed by finish
+	Early   bool    `json:"early"`
+	ratings *string // the ratings object as the model wrote it, parsed by finish
 }
 
 // FitParts are a scored job's parts of fit, each 0-10, and whether
