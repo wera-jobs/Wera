@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/wera-jobs/Wera/compare/wera-v0.28.0...wera-v0.29.0) (2026-11-19)
+
+
+### Features
+
+* **api:** record which resume and letter went with each application ([1eb252e](https://github.com/wera-jobs/Wera/commit/1eb252e72c8a333a2a441156f227c9d79a5a3c2b))
+
 ## [0.28.0](https://github.com/wera-jobs/Wera/compare/wera-v0.27.0...wera-v0.28.0) (2026-11-19)
 
 
