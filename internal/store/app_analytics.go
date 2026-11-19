@@ -25,6 +25,9 @@ type AppAnalytics struct {
 	Weeks []WeekStat `json:"weeks"`
 	// Sources: the same by applicant system (the posting's source).
 	Sources []SourceStat `json:"sources"`
+	// Resumes: the same by the resume sent (tailored, base, upload or
+	// unknown), in Source.
+	Resumes []SourceStat `json:"resumes"`
 	// Median days from applying to a first interview, and from a first
 	// interview to an offer; nil until there is one of each.
 	DaysToInterview *float64 `json:"days_to_interview"`
@@ -52,6 +55,8 @@ type SourceStat struct {
 const appFirsts = `
 	WITH firsts AS (
 	  SELECT ap.job_id, j.source,
+	         coalesce(ap.resume_kind, (SELECT r.resume_kind FROM autofill_runs r WHERE r.user_id = ap.user_id AND r.job_id = ap.job_id
+	                                   AND r.resume_kind IS NOT NULL ORDER BY r.updated_at DESC LIMIT 1), 'unknown') AS resume,
 	         min(c.at) FILTER (WHERE c.status IN ('applied', 'interviewing', 'offer', 'rejected')) AS sent,
 	         min(c.at) FILTER (WHERE c.status = 'applied') AS applied,
 	         min(c.at) FILTER (WHERE c.status IN ('interviewing', 'offer')) AS interview,
@@ -61,14 +66,14 @@ const appFirsts = `
 	  JOIN jobs j ON j.id = ap.job_id
 	  LEFT JOIN application_changes c ON c.user_id = ap.user_id AND c.job_id = ap.job_id
 	  WHERE ap.user_id = $1
-	  GROUP BY ap.job_id, j.source
+	  GROUP BY ap.job_id, j.source, ap.user_id, ap.resume_kind
 	)`
 
 // ApplicationAnalytics computes the summary for one user, over the last
 // `weeks` weeks for the weekly series. A user with no applications gets
 // zeros and empty lists.
 func ApplicationAnalytics(ctx context.Context, pool *pgxpool.Pool, userID int64, weeks int) (*AppAnalytics, error) {
-	out := &AppAnalytics{Now: map[string]int{}, Weeks: []WeekStat{}, Sources: []SourceStat{}}
+	out := &AppAnalytics{Now: map[string]int{}, Weeks: []WeekStat{}, Sources: []SourceStat{}, Resumes: []SourceStat{}}
 	for _, s := range []string{"saved", "applied", "interviewing", "offer", "rejected", "not_interested"} {
 		out.Now[s] = 0
 	}
@@ -119,19 +124,28 @@ func ApplicationAnalytics(ctx context.Context, pool *pgxpool.Pool, userID int64,
 	}
 	rows.Close()
 
-	rows, err = pool.Query(ctx, appFirsts+`
-		SELECT source, count(sent), count(response), count(interview) FROM firsts
-		WHERE sent IS NOT NULL GROUP BY source ORDER BY count(sent) DESC, source`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("analytics sources: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var s SourceStat
-		if err := rows.Scan(&s.Source, &s.Applied, &s.Responded, &s.Interview); err != nil {
+	for _, by := range []struct {
+		col string
+		out *[]SourceStat
+	}{{"source", &out.Sources}, {"resume", &out.Resumes}} {
+		rows, err := pool.Query(ctx, appFirsts+`
+			SELECT `+by.col+`, count(sent), count(response), count(interview) FROM firsts
+			WHERE sent IS NOT NULL GROUP BY 1 ORDER BY count(sent) DESC, 1`, userID)
+		if err != nil {
+			return nil, fmt.Errorf("analytics by %s: %w", by.col, err)
+		}
+		for rows.Next() {
+			var s SourceStat
+			if err := rows.Scan(&s.Source, &s.Applied, &s.Responded, &s.Interview); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			*by.out = append(*by.out, s)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		out.Sources = append(out.Sources, s)
 	}
-	return out, rows.Err()
+	return out, nil
 }

@@ -28,6 +28,8 @@ type ApplicationDetails struct {
 	NextStepAt *time.Time // the zero time clears it
 	Contact    *Contact   // an empty contact clears it
 	Archived   *bool      // archived applications leave the board, history kept
+	ResumeKind *string    // the resume sent (tailored, base or upload); "" clears it
+	LetterSent *bool      // whether a cover letter went with it
 }
 
 // SetApplicationDetails applies d to the user's application for jobID. A
@@ -48,13 +50,16 @@ func SetApplicationDetails(ctx context.Context, pool *pgxpool.Pool, userID, jobI
 		  contact      = CASE WHEN $7::bool THEN $8::jsonb ELSE contact END,
 		  archived_at  = CASE WHEN $9::bool IS NULL THEN archived_at
 		                      WHEN $9::bool THEN coalesce(archived_at, now()) END,
+		  resume_kind  = CASE WHEN $10::bool THEN nullif($11::text, '') ELSE resume_kind END,
+		  letter_sent  = coalesce($12::bool, letter_sent),
 		  updated_at   = now()
 		WHERE user_id = $1 AND job_id = $2`,
 		userID, jobID,
 		d.NextStep != nil, deref(d.NextStep),
 		d.NextStepAt != nil, nextAt,
 		d.Contact != nil, contact,
-		d.Archived)
+		d.Archived,
+		d.ResumeKind != nil, deref(d.ResumeKind), d.LetterSent)
 	if err != nil {
 		return fmt.Errorf("set application details for job %d: %w", jobID, err)
 	}
