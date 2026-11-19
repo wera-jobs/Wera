@@ -334,10 +334,11 @@ func AddManualJob(ctx context.Context, pool *pgxpool.Pool, userID int64, in Manu
 	var jobID int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO jobs (company_id, source, ext_id, title, location_raw, is_remote, url, department,
-		                  description, content_hash, added_by, posted_at)
-		VALUES ($1, 'manual', $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8, $9, $10, $11)
-		RETURNING id`, companyID, extID, in.Title, in.Location, in.Remote, in.URL, in.Department,
-		in.Description, contentHash, userID, in.PostedAt).Scan(&jobID); err != nil {
+		                  description, content_hash, added_by, posted_at,
+		                  pay_min, pay_max, pay_currency, pay_period, pay_checked)
+		VALUES ($1, 'manual', $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14, $15, true)
+		RETURNING id`, append([]any{companyID, extID, in.Title, in.Location, in.Remote, in.URL, in.Department,
+		in.Description, contentHash, userID, in.PostedAt}, payValues(in.Description)...)...).Scan(&jobID); err != nil {
 		return 0, false, fmt.Errorf("insert job: %w", err)
 	}
 	if _, err := linkAddedJob(ctx, tx, userID, jobID); err != nil {
