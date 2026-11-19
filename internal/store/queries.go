@@ -19,6 +19,7 @@ type JobQuery struct {
 	Sponsorship  string // "yes" | "unknown" (only these two are meaningful)
 	WorkMode     string
 	Status       string // application status
+	Archived     bool   // only archived applications (otherwise a status list leaves them out)
 	Q            string // title/company search
 	Since        time.Time
 	PostedWithin int    // days; 0 = any age (see listedAt)
@@ -59,6 +60,10 @@ type JobView struct {
 	Reason          *string    `json:"reason"`
 	AppStatus       *string    `json:"application_status"`
 	DismissReason   *string    `json:"dismiss_reason"` // why the user passed on it, when they said
+	NextStep        *string    `json:"next_step"`
+	NextStepAt      *time.Time `json:"next_step_at"`
+	Contact         *Contact   `json:"contact"`
+	ArchivedAt      *time.Time `json:"archived_at"` // off the tracker's board, history kept
 	AppNotes        *string    `json:"application_notes"`
 	// EstimatedScore is shown until the full AI score arrives: the AI's
 	// quick grade when there is one (EstimateAI), else the local relevance
@@ -125,7 +130,7 @@ const jobViewSelect = `
 	       a.fit_score, a.verdict, a.seniority, a.years_required,
 	       a.sponsorship, a.work_mode, a.location_summary,
 	       a.skills_matched, a.skills_missing, a.reason,
-	       ap.status, ap.notes, ap.dismiss_reason, uj.estimated_score,
+	       ap.status, ap.notes, ap.dismiss_reason, ap.next_step, ap.next_step_at, ap.contact, ap.archived_at, uj.estimated_score,
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
@@ -149,7 +154,7 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
+		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
 		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early}
 }
 
@@ -206,7 +211,12 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	var where []string
 	args := []any{userID}
 
-	if q.Status == "" {
+	if q.Archived {
+		where = append(where, "ap.archived_at IS NOT NULL")
+	} else if q.Status != "" {
+		where = append(where, "ap.archived_at IS NULL")
+	}
+	if q.Status == "" && !q.Archived {
 		where = append(where, "j.closed_at IS NULL")
 		where = append(where, "uj.stage IN ('scored','pending_score')")
 	}
