@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/wera-jobs/Wera/compare/wera-v0.24.0...wera-v0.25.0) (2026-11-19)
+
+
+### Features
+
+* **api:** find, keep and serve company logos ([832ea41](https://github.com/wera-jobs/Wera/commit/832ea4114eef471dffe0c4d98d978ab939b7ec95)), closes [#188](https://github.com/wera-jobs/Wera/issues/188)
+
 ## [0.24.0](https://github.com/wera-jobs/Wera/compare/wera-v0.23.0...wera-v0.24.0) (2026-11-19)
 
 
