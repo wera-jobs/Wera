@@ -161,6 +161,9 @@ func (s *Server) Handler() http.Handler {
 			r.Put("/settings", s.putSettings)
 			r.Put("/companies/{id}/hidden", s.hideCompany)
 			r.Delete("/companies/{id}/hidden", s.hideCompany)
+			r.Get("/companies/{id}", s.companyPage)
+			r.Put("/companies/{id}/follow", s.followCompany)
+			r.Delete("/companies/{id}/follow", s.followCompany)
 
 			r.Get("/jobs", s.listJobs)
 			r.Post("/jobs", s.addJob)

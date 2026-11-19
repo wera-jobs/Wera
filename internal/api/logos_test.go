@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -44,5 +45,41 @@ func TestCompanyLogoRoute(t *testing.T) {
 	}
 	if r, _ := http.Get(ts.URL + "/api/companies/" + strconv.FormatInt(bare, 10) + "/logo"); r.StatusCode != 404 {
 		t.Errorf("no logo: %d", r.StatusCode)
+	}
+}
+
+func TestCompanyPageRoute(t *testing.T) {
+	ts, pool := testServer(t, nil)
+	ctx := context.Background()
+	var id int64
+	if err := pool.QueryRow(ctx, `INSERT INTO companies (name, ats, token, industry) VALUES ('Page Test Co', 'greenhouse', 'page-test-co', 'other') RETURNING id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM companies WHERE id = $1`, id) })
+	path := ts.URL + "/api/companies/" + strconv.FormatInt(id, 10)
+	resp, err := client.Get(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page struct {
+		Name     string
+		Followed bool
+		Roles    []any
+		H1B      any
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&page)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || page.Name != "Page Test Co" || page.Roles == nil || page.H1B != nil {
+		t.Errorf("page: %d %+v", resp.StatusCode, page)
+	}
+	for _, m := range []string{http.MethodPut, http.MethodDelete} {
+		req, _ := http.NewRequest(m, path+"/follow", nil)
+		r, _ := client.Do(req)
+		if r.StatusCode != http.StatusNoContent {
+			t.Errorf("%s follow: %d", m, r.StatusCode)
+		}
+	}
+	if r, _ := client.Get(ts.URL + "/api/companies/999999999"); r.StatusCode != 404 {
+		t.Errorf("missing company: %d", r.StatusCode)
 	}
 }
