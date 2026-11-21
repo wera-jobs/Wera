@@ -40,6 +40,16 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var content string
 	switch {
+	case strings.HasPrefix(system, "You prepare a candidate for an interview"):
+		qs := make([]string, 0, 7)
+		for i, k := range []string{"role", "behavioral", "motivation", "company", "role", "behavioral"} {
+			qs = append(qs, fmt.Sprintf(`{"question":"Question %d about the role?","kind":%q,"why":"The posting asks for it.","points":["Site reliability work from the profile"],"prepare":""}`, i+1, k))
+		}
+		// One point claims a number the candidate never wrote: it must not reach the user.
+		qs = append(qs, `{"question":"How did you cut incidents?","kind":"behavioral","why":"Reliability.","points":["Cut incidents by 73% in a quarter"],"prepare":""}`)
+		content = `{"role":"Keep services healthy.","they_value":["Go","on-call"],"intro":"I work on site reliability.","questions":[` + strings.Join(qs, ",") + `],"ask":["How is on-call shared?"]}`
+	case strings.HasPrefix(system, "You coach a candidate's practice answer"):
+		content = `{"strengths":["You named a real incident"],"improve":["Say what changed after the fix"],"outline":["Set the scene","Say what you did","Cut pages by 73%"]}`
 	case strings.HasPrefix(system, "You write a cover letter") && f.short.Load():
 		content = "Dear Hiring Team, hire me."
 	case strings.HasPrefix(system, "You write a cover letter"):
@@ -350,5 +360,47 @@ func TestEmailDrafts(t *testing.T) {
 	_ = json.Unmarshal([]byte(body), &e)
 	if code != 200 || strings.Contains(e.Body, "sponsorship") || llm.calls.Load()-before != 2 {
 		t.Errorf("referral: %d %+v after %d calls", code, e, llm.calls.Load()-before)
+	}
+}
+
+func TestInterviewPrep(t *testing.T) {
+	ts, llm := llmServer(t)
+	testutil.Profile(t, testPool(t), testUserID, "# Candidate Profile\n## Target roles\nSRE.", config.Preferences{
+		RoleFamilies: []string{"sre"}, Levels: []string{"entry"}, MaxYearsRequired: 3})
+	url := fmt.Sprintf("%s/api/jobs/%d/interview-prep", ts.URL, testJobIDs[0])
+	if code, _ := do(t, client, http.MethodGet, url, ""); code != 404 {
+		t.Errorf("no prep yet: want 404, got %d", code)
+	}
+	code, body := do(t, client, http.MethodPost, url, "")
+	if code != 200 || !strings.Contains(body, "Question 1 about the role?") {
+		t.Fatalf("generate: %d %s", code, body)
+	}
+	if strings.Contains(body, "73%") {
+		t.Error("a talking point with an invented number reached the user")
+	}
+	if !strings.Contains(body, "How did you cut incidents?") || !strings.Contains(body, `"prepare":"Think of a real example`) {
+		t.Errorf("the question should stay, with a prepare line instead of the invented point: %s", body)
+	}
+	calls := llm.calls.Load()
+	if code, body := do(t, client, http.MethodGet, url, ""); code != 200 || !strings.Contains(body, "Keep services healthy.") {
+		t.Errorf("stored prep: %d %s", code, body)
+	}
+	if llm.calls.Load() != calls {
+		t.Error("reading the stored prep must not call the AI")
+	}
+	if code, _ := do(t, client, http.MethodPost, ts.URL+"/api/jobs/99999999/interview-prep", ""); code != 404 {
+		t.Errorf("missing job: want 404, got %d", code)
+	}
+
+	practice := url + "/practice"
+	if code, _ := do(t, client, http.MethodPost, practice, `{"question":"Why us?","answer":"Because."}`); code != 400 {
+		t.Errorf("a one-word answer: want 400, got %d", code)
+	}
+	code, body = do(t, client, http.MethodPost, practice, `{"question":"Tell me about an incident.","answer":"Last summer our checkout service went down at night and I was on call, so I rolled back the deploy and wrote the postmortem."}`)
+	if code != 200 || !strings.Contains(body, "You named a real incident") {
+		t.Fatalf("practice: %d %s", code, body)
+	}
+	if strings.Contains(body, "73%") {
+		t.Error("an outline step with an invented number reached the user")
 	}
 }
