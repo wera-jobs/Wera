@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.35.1](https://github.com/wera-jobs/Wera/compare/wera-v0.35.0...wera-v0.35.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** bump the go-modules group with 3 updates ([7916668](https://github.com/wera-jobs/Wera/commit/7916668664999c0e53d086d6d3e486567716fe4a))
+
+
+### Documentation
+
+* **readme:** make README more concise and scannable ([52f1698](https://github.com/wera-jobs/Wera/commit/52f1698816201d3ab7b8535ee157eafa7d9ad79f))
+
 ## [0.35.0](https://github.com/wera-jobs/Wera/compare/wera-v0.34.0...wera-v0.35.0) (2026-11-21)
 
 
