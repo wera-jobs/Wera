@@ -21,6 +21,6 @@
   \ifstrempty{#4}{}{\vspace{2pt}#4\par}}
 \newcommand{\resumeCompact}[3]{\item\resumeRow{\ifstrempty{#2}{#1}{\textbf{#1}, #2}}{#3}}
 \newcommand{\resumeSkillsStart}{\begin{itemize}[leftmargin=0pt,label={},topsep=0pt,parsep=1pt]\item}
-\newcommand{\resumeSkill}[2]{\textbf{#1:} #2\par}
+\newcommand{\resumeSkill}[2]{\if\relax\detokenize{#1}\relax\else\textbf{#1:} \fi#2\par}
 \newcommand{\resumeSkillsEnd}{\end{itemize}}
 \newcommand{\resumeSummary}[1]{#1\par}
