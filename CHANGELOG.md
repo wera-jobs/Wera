@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.35.0](https://github.com/wera-jobs/Wera/compare/wera-v0.34.0...wera-v0.35.0) (2026-11-21)
+
+
+### Features
+
+* **api:** interview prep for a tracked job ([f05b0f4](https://github.com/wera-jobs/Wera/commit/f05b0f4))
+
+## [0.34.0](https://github.com/wera-jobs/Wera/compare/wera-v0.33.0...wera-v0.34.0) (2026-11-21)
+
+
+### Features
+
+* **api:** a weekly review of the search, from the user's own data ([f38afca](https://github.com/wera-jobs/Wera/commit/f38afca5d9695abdd4667ea1311da042cabf5539)), closes [#203](https://github.com/wera-jobs/Wera/issues/203)
+* **api:** weekly review (C6) ([2f1e591](https://github.com/wera-jobs/Wera/commit/2f1e59105a06f270c03a81b2e886090d3a12a8b2))
+
 ## [0.33.0](https://github.com/wera-jobs/Wera/compare/wera-v0.32.0...wera-v0.33.0) (2026-11-19)
 
 
