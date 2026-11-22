@@ -5,8 +5,6 @@
 
 ### Bug Fixes
 
-* **resume:** drop the colon for unlabeled skill groups ([1c52262](https://github.com/wera-jobs/Wera/commit/1c52262ce99f21bd529543e2ee05d2566f95774f))
-* **resume:** drop the colon for unlabeled skill groups ([48f9d26](https://github.com/wera-jobs/Wera/commit/48f9d2625e2ea60cf03b14eefe3d244b6d8cfc06))
 * **resume:** drop the colon for unlabeled skill groups ([0897b15](https://github.com/wera-jobs/Wera/commit/0897b15b288646a2496af901f246e7a9b8d4d743)), closes [#253](https://github.com/wera-jobs/Wera/issues/253)
 
 ## [0.35.1](https://github.com/wera-jobs/Wera/compare/wera-v0.35.0...wera-v0.35.1) (2026-11-22)
