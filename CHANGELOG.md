@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/wera-jobs/Wera/compare/wera-v0.34.0...wera-v0.35.0) (2026-11-21)
+
+
+### Features
+
+* **api:** interview prep for a tracked job ([f05b0f4](https://github.com/wera-jobs/Wera/commit/f05b0f4))
+
 ## [0.34.0](https://github.com/wera-jobs/Wera/compare/wera-v0.33.0...wera-v0.34.0) (2026-11-21)
 
 
