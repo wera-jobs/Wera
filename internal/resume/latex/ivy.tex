@@ -20,6 +20,6 @@
   \ifstrempty{#4}{}{\vspace{2pt}{\small #4}\par}}
 \newcommand{\resumeCompact}[3]{\item\resumeRow{\ifstrempty{#2}{#1}{\textbf{#1}\enspace$|$\enspace\textit{\small #2}}}{\textit{\small #3}}}
 \newcommand{\resumeSkillsStart}{\begin{itemize}[leftmargin=0.15in,label={},topsep=0pt,parsep=0pt]\small\item}
-\newcommand{\resumeSkill}[2]{\textbf{#1:} #2\par}
+\newcommand{\resumeSkill}[2]{\if\relax\detokenize{#1}\relax\else\textbf{#1:} \fi#2\par}
 \newcommand{\resumeSkillsEnd}{\end{itemize}}
 \newcommand{\resumeSummary}[1]{\begin{itemize}[leftmargin=0.15in,label={},topsep=0pt]\item\small #1\end{itemize}}

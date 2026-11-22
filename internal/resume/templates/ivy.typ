@@ -98,7 +98,7 @@
   set par(leading: 0.42em)
   for (i, g) in s.at("skills", default: ()).enumerate() {
     if i > 0 { linebreak() }
-    [#strong(g.name + ":") #g.items]
+    [#if g.name != "" [#strong(g.name + ":") ]#g.items]
   }
 }))
 

@@ -339,7 +339,11 @@ func (r *Resume) PlainText() string {
 			line(s.Text)
 		}
 		for _, g := range s.Skills {
-			line(g.Name + ": " + g.Items)
+			if g.Name == "" {
+				line(g.Items)
+			} else {
+				line(g.Name + ": " + g.Items)
+			}
 		}
 		for _, e := range s.Entries {
 			if e.Hidden {
