@@ -94,7 +94,7 @@
   columns: (auto, 1fr),
   column-gutter: 1.1em,
   row-gutter: 0.55em,
-  ..s.at("skills", default: ()).map(g => (text(weight: "semibold", g.name), g.items)).flatten(),
+  ..s.at("skills", default: ()).map(g => if g.name == "" { (grid.cell(colspan: 2, g.items),) } else { (text(weight: "semibold", g.name), g.items) }).flatten(),
 )
 
 #for s in sections {

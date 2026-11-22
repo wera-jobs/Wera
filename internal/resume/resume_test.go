@@ -333,3 +333,50 @@ func TestLetterPDF(t *testing.T) {
 		}
 	}
 }
+
+// A skill group with no name prints its items alone: no leading colon in
+// any template, the LaTeX export or the plain text.
+func TestUnlabeledSkillGroup(t *testing.T) {
+	r := sample(t)
+	sk := &r.Sections[1]
+	if sk.Kind != KindSkills {
+		t.Fatalf("section 1 is %s", sk.Kind)
+	}
+	sk.Skills = []SkillGroup{{Name: "", Items: "Go, Python, PostgreSQL, Kubernetes"}, {Name: "Tools", Items: "Docker, Terraform"}}
+	if err := r.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if txt := r.PlainText(); !strings.Contains(txt, "\nGo, Python, PostgreSQL, Kubernetes\n") || strings.Contains(txt, ": Go") {
+		t.Errorf("plain text:\n%s", txt)
+	}
+	for _, tpl := range Templates {
+		l := DefaultLayout
+		l.Template = tpl.ID
+		back, _, err := ImportTeX(r.ExportTeX(l))
+		if err != nil || back.PlainText() != r.PlainText() {
+			t.Errorf("%s: tex round trip: %v\n%s", tpl.ID, err, back.PlainText())
+		}
+	}
+	rd := renderer(t)
+	if _, err := exec.LookPath("pdftotext"); err != nil {
+		t.Skip("pdftotext not installed")
+	}
+	for _, tpl := range Templates {
+		l := DefaultLayout
+		l.Template = tpl.ID
+		pdf, err := rd.PDF(context.Background(), r, l)
+		if err != nil {
+			t.Fatalf("%s: %v", tpl.ID, err)
+		}
+		cmd := exec.Command("pdftotext", "-", "-")
+		cmd.Stdin = bytes.NewReader(pdf)
+		out, _ := cmd.Output()
+		txt := strings.Join(strings.Fields(string(out)), " ")
+		if !strings.Contains(txt, "Go, Python, PostgreSQL, Kubernetes") || strings.Contains(txt, ": Go") {
+			t.Errorf("%s: skills render as:\n%s", tpl.ID, txt)
+		}
+		if !strings.Contains(strings.ToLower(txt), "tools") || !strings.Contains(txt, "Docker, Terraform") {
+			t.Errorf("%s: the labeled group is missing:\n%s", tpl.ID, txt)
+		}
+	}
+}

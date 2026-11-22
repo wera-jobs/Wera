@@ -92,7 +92,7 @@
   set par(leading: 0.48em)
   for (i, g) in s.at("skills", default: ()).enumerate() {
     if i > 0 { linebreak() }
-    [#smallcaps(lower(g.name)): #g.items]
+    [#if g.name != "" [#smallcaps(lower(g.name)): ]#g.items]
   }
 }
 
