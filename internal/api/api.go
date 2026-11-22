@@ -81,19 +81,21 @@ type Server struct {
 	// before a board found through an added job is watched.
 	CheckBoard func(ctx context.Context, ats, token string) (int, error)
 
-	signupLimit  *auth.Limiter
-	loginLimit   *auth.Limiter
-	accountLimit *auth.Limiter
-	draftLimit   *auth.Limiter
-	scoreLimit   *auth.Limiter
-	letterLimit  *auth.Limiter
-	emailLimit   *auth.Limiter
-	postLimit    *auth.Limiter
-	commentLimit *auth.Limiter
-	extAILimit   *auth.Limiter
-	previewLimit *auth.Limiter
-	beaconLimit  *auth.Limiter
-	reportLimit  *auth.Limiter
+	signupLimit   *auth.Limiter
+	loginLimit    *auth.Limiter
+	accountLimit  *auth.Limiter
+	draftLimit    *auth.Limiter
+	scoreLimit    *auth.Limiter
+	letterLimit   *auth.Limiter
+	prepLimit     *auth.Limiter
+	practiceLimit *auth.Limiter
+	emailLimit    *auth.Limiter
+	postLimit     *auth.Limiter
+	commentLimit  *auth.Limiter
+	extAILimit    *auth.Limiter
+	previewLimit  *auth.Limiter
+	beaconLimit   *auth.Limiter
+	reportLimit   *auth.Limiter
 
 	// Site analytics (analytics.go): today's visitor salt and the request counter.
 	saltMu   sync.Mutex
@@ -128,6 +130,8 @@ func (s *Server) Handler() http.Handler {
 	s.draftLimit = auth.NewLimiter(10, time.Hour)
 	s.scoreLimit = auth.NewLimiter(120, time.Hour)
 	s.letterLimit = auth.NewLimiter(20, time.Hour)
+	s.prepLimit = auth.NewLimiter(10, time.Hour)
+	s.practiceLimit = auth.NewLimiter(60, time.Hour)
 	s.emailLimit = auth.NewLimiter(30, time.Hour)
 	s.postLimit = auth.NewLimiter(5, time.Hour)
 	s.commentLimit = auth.NewLimiter(30, time.Hour)
@@ -192,6 +196,9 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/jobs/{id}/email-draft", s.emailDraft)
 			r.Put("/jobs/{id}/cover-letter", s.putCoverLetter)
 			r.Get("/jobs/{id}/cover-letter/pdf", s.coverLetterPDF)
+			r.Get("/jobs/{id}/interview-prep", s.getInterviewPrep)
+			r.Post("/jobs/{id}/interview-prep", s.generateInterviewPrep)
+			r.Post("/jobs/{id}/interview-prep/practice", s.practiceAnswer)
 
 			r.Get("/posts", s.listPosts)
 			r.Post("/posts", s.createPost)

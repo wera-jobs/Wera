@@ -51,6 +51,7 @@ func Prune(ctx context.Context, pool *pgxpool.Pool, maxTime time.Duration) (Prun
 		  WHERE j.closed_at < $1
 		    AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)
 		    AND NOT EXISTS (SELECT 1 FROM cover_letters c WHERE c.job_id = j.id)
+		    AND NOT EXISTS (SELECT 1 FROM interview_preps p WHERE p.job_id = j.id)
 		    AND NOT EXISTS (SELECT 1 FROM resumes r WHERE r.job_id = j.id)
 		  LIMIT $2)`, now.Add(-closedJobLifetime)); err != nil {
 		return st, fmt.Errorf("prune closed jobs: %w", err)
