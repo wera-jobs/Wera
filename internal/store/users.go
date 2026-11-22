@@ -91,6 +91,15 @@ func SetPassword(ctx context.Context, pool *pgxpool.Pool, userID int64, hash, ke
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := setPassword(ctx, tx, userID, hash, keepTokenHash); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// setPassword stores the hash and signs out every other session and every
+// extension, inside the caller's transaction.
+func setPassword(ctx context.Context, tx pgx.Tx, userID int64, hash, keepTokenHash string) error {
 	tag, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, hash)
 	if err != nil {
 		return fmt.Errorf("set password: %w", err)
@@ -105,7 +114,7 @@ func SetPassword(ctx context.Context, pool *pgxpool.Pool, userID int64, hash, ke
 	if _, err := tx.Exec(ctx, `DELETE FROM api_tokens WHERE user_id = $1`, userID); err != nil {
 		return fmt.Errorf("revoke extension tokens: %w", err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // CreateSession stores a session token hash and records the login.

@@ -60,6 +60,43 @@ func UseEmailToken(ctx context.Context, pool *pgxpool.Pool, purpose, raw string)
 	return userID, email, err
 }
 
+// EmailTokenLive reports whether an unused, unexpired token exists, without
+// using it: a cheap check before slow work such as hashing a password.
+func EmailTokenLive(ctx context.Context, pool *pgxpool.Pool, purpose, raw string) (bool, error) {
+	var ok bool
+	err := pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM email_tokens
+		WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now())`, hashToken(raw), purpose).Scan(&ok)
+	return ok, err
+}
+
+// ResetPassword uses a reset token and sets the new password hash in one
+// transaction, signing out every session and extension. A token that is
+// unknown, used or expired gives ErrTokenInvalid and changes nothing.
+func ResetPassword(ctx context.Context, pool *pgxpool.Pool, raw, hash string) (int64, string, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	defer tx.Rollback(ctx)
+	var userID int64
+	var email string
+	err = tx.QueryRow(ctx, `
+		UPDATE email_tokens SET used_at = now()
+		WHERE token_hash = $1 AND purpose = 'reset' AND used_at IS NULL AND expires_at > now()
+		RETURNING user_id, email`, hashToken(raw)).Scan(&userID, &email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", ErrTokenInvalid
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	if err := setPassword(ctx, tx, userID, hash, ""); err != nil {
+		return 0, "", err
+	}
+	return userID, email, tx.Commit(ctx)
+}
+
 // MarkEmailVerified records that the user confirmed email, if it is still
 // their address (a link for an old address does nothing).
 func MarkEmailVerified(ctx context.Context, pool *pgxpool.Pool, userID int64, email string) (bool, error) {
