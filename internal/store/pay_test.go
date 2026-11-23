@@ -23,6 +23,9 @@ func TestJobPay(t *testing.T) {
 			Description: "Pay range: $25.50 to $31 per hour", ContentHash: testutil.Unique("h")},
 		{CompanyID: companyID, Source: "greenhouse", ExtID: testutil.Unique("pay"), Title: "Paid Unstated", URL: "https://example.com/3",
 			Description: "We raised $40 million in our Series B.", ContentHash: testutil.Unique("h")},
+		// About US$23k-26k: must not pass a US-dollar minimum.
+		{CompanyID: companyID, Source: "greenhouse", ExtID: testutil.Unique("pay"), Title: "Paid Abroad", URL: "https://example.com/4",
+			Description: "Base salary: HKD $180,000 - $200,000 per year.", ContentHash: testutil.Unique("h")},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -62,10 +65,14 @@ func TestJobPay(t *testing.T) {
 	if j := all["Paid Unstated"]; j.PayMin != nil {
 		t.Errorf("funding read as pay: %+v", j)
 	}
+	if j := all["Paid Abroad"]; j.PayCurrency == nil || *j.PayCurrency != "HKD" || *j.PayMin != 180000 {
+		t.Errorf("abroad: %+v", j)
+	}
 	if j := all["Paid Before"]; j.PayMin == nil || *j.PayMin != 80000 {
 		t.Errorf("backfilled: %+v", j)
 	}
-	// $31 an hour is about $64,480 a year: under 100k, over 60k.
+	// $31 an hour is about $64,480 a year: under 100k, over 60k. The
+	// minimum is in US dollars, so pay in another currency never meets it.
 	if got := list(store.JobQuery{MinPay: 100000}); len(got) != 1 || got["Paid Yearly"].ID == 0 {
 		t.Errorf("min pay 100k: %v", got)
 	}

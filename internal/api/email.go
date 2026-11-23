@@ -33,6 +33,9 @@ func (s *Server) sendVerification(w http.ResponseWriter, r *http.Request) {
 	if s.mailOff(w) {
 		return
 	}
+	if !s.sessionOnly(w, r) {
+		return
+	}
 	u := currentUser(r)
 	if ok, err := store.EmailVerified(r.Context(), s.Pool, u.ID); err == nil && ok {
 		s.writeJSON(w, http.StatusOK, map[string]any{"verified": true})
@@ -57,6 +60,10 @@ func (s *Server) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Token string `json:"token"`
+	}
+	if !s.tokenLimit.Allow(s.clientIP(r)) {
+		s.writeError(w, http.StatusTooManyRequests, "too many attempts; try again in a few minutes")
+		return
 	}
 	if err := decodeJSON(r, &in); err != nil || in.Token == "" || len(in.Token) > 100 {
 		s.writeError(w, http.StatusBadRequest, "the link is incomplete")
@@ -123,6 +130,9 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusAccepted, map[string]any{"message": "If an account uses that address, a reset link is on its way."})
 }
 
+// hashPassword is auth.HashPassword; tests count its calls.
+var hashPassword = auth.HashPassword
+
 // resetPassword is POST /api/auth/password/reset {token, password}: sets
 // the password, signs out every session and extension, and confirms the
 // address (the link proved access to the inbox).
@@ -134,6 +144,10 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 		Token    string `json:"token"`
 		Password string `json:"password"`
 	}
+	if !s.tokenLimit.Allow(s.clientIP(r)) {
+		s.writeError(w, http.StatusTooManyRequests, "too many attempts; try again in a few minutes")
+		return
+	}
 	if err := decodeJSON(r, &in); err != nil || in.Token == "" || len(in.Token) > 100 {
 		s.writeError(w, http.StatusBadRequest, "the link is incomplete")
 		return
@@ -142,18 +156,25 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	hash, err := auth.HashPassword(in.Password)
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "could not hash password")
+	// Check the link before hashing: bcrypt is slow on purpose, and a
+	// made-up token must not cost the server that time.
+	live, err := store.EmailTokenLive(r.Context(), s.Pool, "reset", in.Token)
+	if err == nil && !live {
+		s.writeError(w, http.StatusBadRequest, store.ErrTokenInvalid.Error())
 		return
 	}
-	userID, email, err := store.UseEmailToken(r.Context(), s.Pool, "reset", in.Token)
+	var hash string
+	if err == nil {
+		hash, err = hashPassword(in.Password)
+	}
+	var userID int64
+	var email string
+	if err == nil {
+		userID, email, err = store.ResetPassword(r.Context(), s.Pool, in.Token, hash)
+	}
 	if errors.Is(err, store.ErrTokenInvalid) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if err == nil {
-		err = store.SetPassword(r.Context(), s.Pool, userID, hash, "")
 	}
 	if err != nil {
 		s.Log.Error("password reset failed", "err", err)
