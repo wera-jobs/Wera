@@ -35,7 +35,8 @@ type AdminUser struct {
 const adminUserSelect = `
 	SELECT u.id, u.email, u.name, u.is_admin, u.created_at, u.last_login_at, u.email_verified_at IS NOT NULL,
 	       u.monthly_budget_usd::float8,
-	       coalesce((SELECT sum(cost_usd) FROM llm_usage l WHERE l.user_id = u.id AND l.created_at >= date_trunc('month', now())), 0)::float8,
+	       (coalesce((SELECT sum(cost_usd) FROM analyses a WHERE a.user_id = u.id AND a.created_at >= date_trunc('month', now())), 0)
+	      + coalesce((SELECT sum(cost_usd) FROM llm_usage l WHERE l.user_id = u.id AND l.created_at >= date_trunc('month', now())), 0))::float8,
 	       EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = u.id AND p.markdown <> ''),
 	       (SELECT count(*) FROM user_jobs uj WHERE uj.user_id = u.id AND uj.stage IN ('scored', 'pending_score')),
 	       (SELECT count(*) FROM user_jobs uj WHERE uj.user_id = u.id AND uj.stage = 'scored'),
@@ -304,7 +305,8 @@ func AdminOverview(ctx context.Context, pool *pgxpool.Pool) (*Overview, error) {
 		       (SELECT count(*) FROM jobs WHERE first_seen_at > now() - interval '24 hours'),
 		       (SELECT count(*) FROM jobs WHERE closed_at IS NULL AND source = 'manual'),
 		       (SELECT count(*) FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id WHERE uj.stage = 'pending_score' AND j.closed_at IS NULL),
-		       coalesce((SELECT sum(cost_usd) FROM llm_usage WHERE created_at >= date_trunc('month', now())), 0)::float8,
+		       (coalesce((SELECT sum(cost_usd) FROM analyses WHERE created_at >= date_trunc('month', now())), 0)
+		      + coalesce((SELECT sum(cost_usd) FROM llm_usage WHERE created_at >= date_trunc('month', now())), 0))::float8,
 		       (SELECT count(*) FROM email_outbox WHERE status = 'queued'),
 		       (SELECT count(*) FROM email_outbox WHERE status = 'failed' AND created_at > now() - interval '7 days'),
 		       (SELECT count(*) FROM posts WHERE status <> 'published') + (SELECT count(*) FROM post_comments WHERE status <> 'published'),

@@ -71,6 +71,9 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := currentUser(r)
+	if !s.sessionOnly(w, r) || !s.passwordTry(w, user.ID) {
+		return
+	}
 	hash, err := store.PasswordHash(r.Context(), s.Pool, user.ID)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "lookup failed")

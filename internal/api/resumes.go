@@ -59,6 +59,18 @@ func (s *Server) resumeParam(w http.ResponseWriter, r *http.Request) (*store.Res
 }
 
 // view adds keyword coverage for a tailored copy.
+// reread loads a resume just saved, to answer with it. A failed read (the
+// request canceled, the database gone) writes a 500 and returns false.
+func (s *Server) reread(w http.ResponseWriter, r *http.Request, userID, id int64) (*store.ResumeDoc, bool) {
+	doc, err := store.GetResume(r.Context(), s.Pool, userID, id)
+	if err != nil {
+		s.Log.Error("reading a saved resume failed", "user_id", userID, "resume_id", id, "err", err)
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return nil, false
+	}
+	return doc, true
+}
+
 func (s *Server) view(r *http.Request, doc *store.ResumeDoc) resumeView {
 	v := resumeView{ResumeDoc: doc}
 	if doc.JobID != nil {
@@ -163,7 +175,10 @@ func (s *Server) importResume(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, ierr.code, ierr.msg)
 		return
 	}
-	doc2, _ := store.GetResume(r.Context(), s.Pool, user.ID, id)
+	doc2, ok := s.reread(w, r, user.ID, id)
+	if !ok {
+		return
+	}
 	s.writeJSON(w, http.StatusCreated, s.view(r, doc2))
 }
 
@@ -293,7 +308,10 @@ func (s *Server) putResume(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "save failed")
 		return
 	}
-	saved, _ := store.GetResume(r.Context(), s.Pool, currentUser(r).ID, doc.ID)
+	saved, ok := s.reread(w, r, currentUser(r).ID, doc.ID)
+	if !ok {
+		return
+	}
 	s.writeJSON(w, http.StatusOK, s.view(r, saved))
 }
 
@@ -377,7 +395,7 @@ func (s *Server) previewResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func resumeFilename(name, ext string) string {
-	base := safeFilename(strings.ReplaceAll(strings.TrimSpace(name), " ", "_") + "_Resume." + ext)
+	base := safeFilename(strings.ReplaceAll(strings.TrimSpace(name), " ", "_")+"_Resume."+ext, ext)
 	if base == "" || strings.HasPrefix(base, ".") {
 		return "Resume." + ext
 	}
@@ -641,7 +659,10 @@ func (s *Server) tailorJobResume(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "could not save the tailored resume")
 		return
 	}
-	saved, _ := store.GetResume(r.Context(), s.Pool, user.ID, rid)
+	saved, ok := s.reread(w, r, user.ID, rid)
+	if !ok {
+		return
+	}
 	v := s.view(r, saved)
 	s.writeJSON(w, http.StatusOK, map[string]any{"resume": v, "coverage_before": before})
 }
@@ -740,7 +761,7 @@ func (s *Server) coverLetterPDF(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("download") == "1" {
 		disposition = "attachment"
 	}
-	file := safeFilename(strings.ReplaceAll(name, " ", "_") + "_Cover_Letter.pdf")
+	file := safeFilename(strings.ReplaceAll(name, " ", "_")+"_Cover_Letter.pdf", "pdf")
 	if file == "" || strings.HasPrefix(file, ".") || strings.HasPrefix(file, "_") {
 		file = "Cover_Letter.pdf"
 	}

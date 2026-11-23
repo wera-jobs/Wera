@@ -99,7 +99,7 @@ func (s *Server) uploadResume(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Keep the PDF itself so the user can view what they uploaded.
-		if err := store.SaveResumeFile(r.Context(), s.Pool, currentUser(r).ID, safeFilename(hdr.Filename), data); err != nil {
+		if err := store.SaveResumeFile(r.Context(), s.Pool, currentUser(r).ID, safeFilename(hdr.Filename, "pdf"), data); err != nil {
 			s.Log.Error("save resume file failed", "err", err)
 		}
 	} else {

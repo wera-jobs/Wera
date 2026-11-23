@@ -35,16 +35,19 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	log := config.NewLogger(env)
 
-	pool, err := store.Open(ctx, env.DatabaseURL)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
+	// Graceful shutdown on SIGINT/SIGTERM: everything started below
+	// (FillPay, the outbox, session cleanup, matching) stops with ctx.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
+	// One pool for the API and the pipeline it runs (matching after a
+	// profile save, scoring added jobs), closed on the way out.
 	p, err := buildPipeline(ctx)
 	if err != nil {
 		return err
 	}
+	pool := p.Pool
+	defer pool.Close()
 	reg := metrics.New()
 	p.Metrics = reg
 
@@ -142,12 +145,12 @@ func runServe(ctx context.Context, args []string) error {
 		},
 		ScoreNow: p.ScoreNow,
 		ShareJob: func(ctx context.Context, jobID, addedBy int64) {
-			offered, scored, err := p.ShareJob(ctx, jobID, addedBy)
+			offered, suited, err := p.ShareJob(ctx, jobID, addedBy)
 			if err != nil {
 				log.Error("sharing an added job failed", "job_id", jobID, "err", err)
 				return
 			}
-			log.Info("shared an added job", "job_id", jobID, "offered", offered, "scored", scored)
+			log.Info("shared an added job", "job_id", jobID, "offered", offered, "suited", suited)
 		},
 		CheckBoard: func(ctx context.Context, ats, token string) (int, error) {
 			return pipeline.CheckBoard(ctx, boards, ats, token)
@@ -184,9 +187,6 @@ func runServe(ctx context.Context, args []string) error {
 		MaxHeaderBytes: 64 << 10,
 	}
 
-	// Graceful shutdown on SIGINT/SIGTERM.
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if srv.Notify.Enabled() {
 		go srv.Notify.Run(ctx, 5*time.Second)
 	}

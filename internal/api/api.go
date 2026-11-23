@@ -83,6 +83,7 @@ type Server struct {
 
 	signupLimit   *auth.Limiter
 	loginLimit    *auth.Limiter
+	tokenLimit    *auth.Limiter
 	accountLimit  *auth.Limiter
 	draftLimit    *auth.Limiter
 	scoreLimit    *auth.Limiter
@@ -96,6 +97,10 @@ type Server struct {
 	previewLimit  *auth.Limiter
 	beaconLimit   *auth.Limiter
 	reportLimit   *auth.Limiter
+	addJobLimit   *auth.Limiter
+	// addSlots bounds how many added jobs are scored and checked in the
+	// background at once, so a burst of additions queues instead of fanning out.
+	addSlots chan struct{}
 
 	// Site analytics (analytics.go): today's visitor salt and the request counter.
 	saltMu   sync.Mutex
@@ -126,6 +131,8 @@ func (s *Server) Handler() http.Handler {
 	}
 	s.signupLimit = auth.NewLimiter(signups, time.Hour)
 	s.loginLimit = auth.NewLimiter(10, 15*time.Minute)
+	// Emailed links (confirm address, reset password), per IP.
+	s.tokenLimit = auth.NewLimiter(20, 15*time.Minute)
 	s.accountLimit = auth.NewLimiter(10, 15*time.Minute)
 	s.draftLimit = auth.NewLimiter(10, time.Hour)
 	s.scoreLimit = auth.NewLimiter(120, time.Hour)
@@ -139,6 +146,8 @@ func (s *Server) Handler() http.Handler {
 	s.previewLimit = auth.NewLimiter(900, time.Hour)
 	s.beaconLimit = auth.NewLimiter(600, time.Hour)
 	s.reportLimit = auth.NewLimiter(10, time.Hour)
+	s.addJobLimit = auth.NewLimiter(addJobsPerHour, time.Hour)
+	s.addSlots = make(chan struct{}, 4)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
 

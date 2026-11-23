@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,6 +150,27 @@ func (s *Server) originAllowed(r *http.Request, origin string) bool {
 		host = fh
 	}
 	return strings.EqualFold(u.Host, host)
+}
+
+// sessionOnly refuses an extension token: changing the password, deleting
+// the account and similar need the signed-in dashboard, so a leaked
+// extension key can't take the account over. It writes the 403 itself.
+func (s *Server) sessionOnly(w http.ResponseWriter, r *http.Request) bool {
+	if bearerHash(r) != "" {
+		s.writeError(w, http.StatusForbidden, "do this from the dashboard, signed in")
+		return false
+	}
+	return true
+}
+
+// passwordTry rate-limits checks of a signed-in user's current password
+// (changing it, deleting the account), so it can't be guessed online.
+func (s *Server) passwordTry(w http.ResponseWriter, userID int64) bool {
+	if !s.accountLimit.Allow("password:" + strconv.FormatInt(userID, 10)) {
+		s.writeError(w, http.StatusTooManyRequests, "too many password attempts; try again in 15 minutes")
+		return false
+	}
+	return true
 }
 
 // clientIP is the rate-limit key: the peer address, or the first proxy
@@ -345,6 +367,9 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	if !s.sessionOnly(w, r) || !s.passwordTry(w, u.ID) {
+		return
+	}
 	hash, err := store.PasswordHash(r.Context(), s.Pool, u.ID)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "lookup failed")
