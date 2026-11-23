@@ -540,7 +540,8 @@ func todayScore(t *testing.T, pool *pgxpool.Pool, userID, jobID int64) int {
 }
 
 // TestShareJob checks that a job one user adds reaches the others it
-// suits, scored, and is filtered out for the rest.
+// suits as a pending match (their own run scores it: no AI is spent on
+// them by someone else's addition), and is filtered out for the rest.
 func TestShareJob(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
@@ -570,14 +571,25 @@ func TestShareJob(t *testing.T) {
 	}
 	sre, accountant := add("Site Reliability Engineer"), add("Accountant")
 
-	if _, scored, err := p.ShareJob(ctx, sre, adder.ID); err != nil || scored != 1 {
-		t.Fatalf("share: scored %d, %v", scored, err)
+	fits := coral.fits.Load()
+	if _, suited, err := p.ShareJob(ctx, sre, adder.ID); err != nil || suited != 1 {
+		t.Fatalf("share: suited %d, %v", suited, err)
+	}
+	if stage, _ := stageOf(t, pool, other.ID, sre); stage != "pending_score" {
+		t.Errorf("a suitable added job should wait for the other user's own run: %s", stage)
+	}
+	if n := coral.fits.Load() - fits; n != 0 {
+		t.Errorf("sharing made %d scoring call(s) for another user", n)
+	}
+	// The other user's own run scores it.
+	if err := p.ScoreNow(ctx, other.ID, sre); err != nil {
+		t.Fatal(err)
 	}
 	if stage, _ := stageOf(t, pool, other.ID, sre); stage != "scored" {
-		t.Errorf("a suitable added job should be scored for other users: %s", stage)
+		t.Errorf("the other user's own run should score it: %s", stage)
 	}
-	if _, scored, err := p.ShareJob(ctx, accountant, adder.ID); err != nil || scored != 0 {
-		t.Fatalf("share off-topic: scored %d, %v", scored, err)
+	if _, suited, err := p.ShareJob(ctx, accountant, adder.ID); err != nil || suited != 0 {
+		t.Fatalf("share off-topic: suited %d, %v", suited, err)
 	}
 	if stage, _ := stageOf(t, pool, other.ID, accountant); stage != "" {
 		t.Errorf("an off-topic added job should be rule-filtered: %s", stage)

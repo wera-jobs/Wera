@@ -250,10 +250,11 @@ func (p *Pipeline) ScoreNow(ctx context.Context, userID, jobID int64) error {
 
 // ShareJob offers a job one user added to everyone else: each user's
 // rules filter it like a fetched posting, and the users it suits get it
-// scored now (within their allowance), so it reaches their lists and
-// digests without waiting for the next run. Users being matched right now
-// are skipped; that match or the next run picks the job up.
-func (p *Pipeline) ShareJob(ctx context.Context, jobID, addedBy int64) (offered, scored int, err error) {
+// as a pending match. It never calls the AI for them: their own next run
+// scores it within their allowance, as it does any new posting, so one
+// user's additions can't spend other users' budgets. Users being matched
+// right now are skipped; that match or the next run picks the job up.
+func (p *Pipeline) ShareJob(ctx context.Context, jobID, addedBy int64) (offered, suited int, err error) {
 	profiles, err := store.ReadyProfiles(ctx, p.Pool)
 	if err != nil {
 		return 0, 0, fmt.Errorf("load profiles: %w", err)
@@ -263,7 +264,7 @@ func (p *Pipeline) ShareJob(ctx context.Context, jobID, addedBy int64) (offered,
 			continue
 		}
 		if ctx.Err() != nil {
-			return offered, scored, ctx.Err()
+			return offered, suited, ctx.Err()
 		}
 		suits, err := p.offer(ctx, prof, jobID)
 		if err != nil {
@@ -271,18 +272,11 @@ func (p *Pipeline) ShareJob(ctx context.Context, jobID, addedBy int64) (offered,
 			continue
 		}
 		offered++
-		if !suits {
-			continue
-		}
-		if err := p.ScoreNow(ctx, prof.UserID, jobID); err != nil {
-			p.Log.Info("added job left for the next run", "user_id", prof.UserID, "job_id", jobID, "why", err)
-			continue
-		}
-		if stage, _ := store.UserJobStage(ctx, p.Pool, prof.UserID, jobID); stage != "pending_score" {
-			scored++
+		if suits {
+			suited++
 		}
 	}
-	return offered, scored, nil
+	return offered, suited, nil
 }
 
 // offer filters the user's new jobs (the shared one among them) under

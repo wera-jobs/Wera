@@ -145,12 +145,12 @@ func runServe(ctx context.Context, args []string) error {
 		},
 		ScoreNow: p.ScoreNow,
 		ShareJob: func(ctx context.Context, jobID, addedBy int64) {
-			offered, scored, err := p.ShareJob(ctx, jobID, addedBy)
+			offered, suited, err := p.ShareJob(ctx, jobID, addedBy)
 			if err != nil {
 				log.Error("sharing an added job failed", "job_id", jobID, "err", err)
 				return
 			}
-			log.Info("shared an added job", "job_id", jobID, "offered", offered, "scored", scored)
+			log.Info("shared an added job", "job_id", jobID, "offered", offered, "suited", suited)
 		},
 		CheckBoard: func(ctx context.Context, ats, token string) (int, error) {
 			return pipeline.CheckBoard(ctx, boards, ats, token)
