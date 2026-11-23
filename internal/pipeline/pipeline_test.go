@@ -187,8 +187,9 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if st.FactsExtracted != 2 || st.ExcludedByFacts != 1 || st.Scored != 1 {
 		t.Errorf("stats: %+v", st)
 	}
-	if stage, _ := stageOf(t, pool, u1.ID, tooSenior); stage != "" {
-		t.Errorf("8+ years job: %s, want dropped by its facts", stage)
+	// Asked for by id (the user opened it): the row stays, with the reason.
+	if stage, reason := stageOf(t, pool, u1.ID, tooSenior); stage != "excluded" || !strings.HasPrefix(reason, "llm:") {
+		t.Errorf("8+ years job: %s %q, want excluded by its facts with the reason kept", stage, reason)
 	}
 	if stage, _ := stageOf(t, pool, u1.ID, good); stage != "scored" {
 		t.Errorf("good job: %s", stage)
@@ -741,5 +742,65 @@ func TestRankingRewritesOnlyChangedEstimates(t *testing.T) {
 		if v != before[id] {
 			t.Errorf("job %d was rewritten with the same estimate", id)
 		}
+	}
+}
+
+// A job the user opened and the facts rule out stays readable with its
+// reason (not "not found"), and on-demand scoring waits out a match of
+// the same user instead of scoring alongside it.
+func TestScoreNowKeepsAnExcludedJobAndTakesTheLock(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	env.MaxCostPerRunUSD, env.MaxMonthlyCostUSD = 1, 1e6
+	p := &Pipeline{Pool: pool, Env: env, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Engine: testEngine(t)}
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Platform Engineer, Infrastructure", Location: "Seattle, WA", Description: "You have 8+ years of experience running Kubernetes."},
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: "Keep our Go services healthy with Kubernetes."},
+	)
+	tooSenior, good := ids[0], ids[1]
+	u := testutil.User(t, pool, false)
+	prof := testutil.Profile(t, pool, u.ID, sreProfile, srePrefs)
+	if _, err := FilterUser(ctx, pool, p.Engine, nil, prof, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.ScoreNow(ctx, u.ID, tooSenior); err != nil {
+		t.Fatal(err)
+	}
+	job, err := store.GetJob(ctx, pool, u.ID, tooSenior)
+	if err != nil {
+		t.Fatalf("the opened job is gone after scoring: %v", err)
+	}
+	if job.Stage != "excluded" || job.ExcludeReason == nil || !strings.HasPrefix(*job.ExcludeReason, "llm:") {
+		t.Errorf("opened job: stage %s, reason %v; want excluded by its facts", job.Stage, job.ExcludeReason)
+	}
+
+	// A background match holds the user's lock: nothing is scored.
+	old := scoreNowLockWait
+	scoreNowLockWait = 300 * time.Millisecond
+	t.Cleanup(func() { scoreNowLockWait = old })
+	got, release, err := store.TryUserLock(ctx, pool, u.ID)
+	if err != nil || !got {
+		t.Fatalf("lock: %v %v", got, err)
+	}
+	calls := coral.facts.Load() + coral.fits.Load()
+	if err := p.ScoreNow(ctx, u.ID, good); !errors.Is(err, errUserBusy) {
+		t.Errorf("scoring during a match: %v, want errUserBusy", err)
+	}
+	if n := coral.facts.Load() + coral.fits.Load(); n != calls {
+		t.Errorf("%d AI call(s) while the user was being matched", n-calls)
+	}
+	release(ctx)
+	if err := p.ScoreNow(ctx, u.ID, good); err != nil {
+		t.Fatal(err)
+	}
+	if stage, _ := stageOf(t, pool, u.ID, good); stage != "scored" {
+		t.Errorf("after the match: %s, want scored", stage)
 	}
 }
