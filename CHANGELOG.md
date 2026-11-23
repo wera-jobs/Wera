@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.35.3](https://github.com/wera-jobs/Wera/compare/wera-v0.35.2...wera-v0.35.3) (2026-11-23)
+
+
+### Bug Fixes
+
+* **admin:** count every AI call in the admin spend figures ([ef29f02](https://github.com/wera-jobs/Wera/commit/ef29f026c94963536ba58c4966b7009363f64ba0))
+* **admin:** count every AI call in the admin spend figures ([1397f26](https://github.com/wera-jobs/Wera/commit/1397f267603b3d145cf7fb94a544a482046b5747)), closes [#265](https://github.com/wera-jobs/Wera/issues/265)
+* **auth:** check reset links before hashing and keep account actions to the dashboard ([b8085e4](https://github.com/wera-jobs/Wera/commit/b8085e4ecbfa616cc2a305bc5b9d60526c2a24ba))
+* **auth:** check reset links before hashing and keep account actions to the dashboard ([c18cd51](https://github.com/wera-jobs/Wera/commit/c18cd5178d011e9bf83ab971e4985fa42c79e026)), closes [#264](https://github.com/wera-jobs/Wera/issues/264) [#268](https://github.com/wera-jobs/Wera/issues/268)
+* **jobs:** keep pay in other currencies out of the US-dollar minimum ([48612a8](https://github.com/wera-jobs/Wera/commit/48612a88432bd810b66a2526a52218c98023b741))
+* **jobs:** keep pay in other currencies out of the US-dollar minimum ([0ac0157](https://github.com/wera-jobs/Wera/commit/0ac0157f522e267800e46d41249bb0e2faa50357)), closes [#269](https://github.com/wera-jobs/Wera/issues/269)
+* **jobs:** limit job additions and stop them spending other users' AI ([8c0562a](https://github.com/wera-jobs/Wera/commit/8c0562ad61f2d087aad3e148d5608ac82e682908))
+* **jobs:** limit job additions and stop them spending other users' AI ([e5c8a53](https://github.com/wera-jobs/Wera/commit/e5c8a53d1c39829df7aebd13fce7962d4d56832b)), closes [#263](https://github.com/wera-jobs/Wera/issues/263)
+* **resumes:** answer 500 when a saved resume can't be read back ([0bdeef4](https://github.com/wera-jobs/Wera/commit/0bdeef4e960c7874be96d5fa26e828ab30f8d472)), closes [#270](https://github.com/wera-jobs/Wera/issues/270)
+* **resumes:** name .tex and .txt downloads with their own extension ([85eee58](https://github.com/wera-jobs/Wera/commit/85eee58c4a49bef7084bea12cb1a3aebb9c21e87)), closes [#266](https://github.com/wera-jobs/Wera/issues/266)
+* **resumes:** right download extensions and no panic after a failed reread ([1c580e6](https://github.com/wera-jobs/Wera/commit/1c580e68af96a98a4a1adf7c0b6d90c9b75a04cd))
+* **serve:** use one database pool and stop background work on shutdown ([cc4cc1f](https://github.com/wera-jobs/Wera/commit/cc4cc1f20225ee04e8e63f9db7c5c9ad6e5b8b9f))
+* **serve:** use one database pool and stop background work on shutdown ([99309e3](https://github.com/wera-jobs/Wera/commit/99309e3b9a827b01980b293ea541d6fe40005b6f)), closes [#267](https://github.com/wera-jobs/Wera/issues/267)
+
 ## [0.35.2](https://github.com/wera-jobs/Wera/compare/wera-v0.35.1...wera-v0.35.2) (2026-11-22)
 
 
