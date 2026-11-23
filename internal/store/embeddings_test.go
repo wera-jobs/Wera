@@ -63,6 +63,23 @@ func TestScoredVectors(t *testing.T) {
 	if got, err = store.ScoredVectors(ctx, pool, me.ID, []string{"old", "new"}, model, 1); err != nil || len(got) != 1 || got[0].Score != 80 {
 		t.Errorf("the limit keeps the most recent: %+v, %v", got, err)
 	}
+	// A score linked from the cache (another account, same profile text)
+	// is the user's score too.
+	var shared int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO analyses (job_id, kind, model, profile_hash, fit_score, raw, user_id, created_at)
+		VALUES ($1, 'score', 'test', 'new', 64, '{}', $2, now() - interval '30 minutes') RETURNING id`, ids[2], them.ID).Scan(&shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage, analysis_id) VALUES ($1, $2, 'h', 'scored', $3)`, me.ID, ids[2], shared); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = store.ScoredVectors(ctx, pool, me.ID, []string{"old", "new"}, model, 10); err != nil || len(got) != 3 || got[0].Score != 64 {
+		t.Fatalf("with a linked score: %+v, %v; want 64 (newest), 80, 30", got, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM user_jobs WHERE user_id = $1 AND job_id = $2`, me.ID, ids[2]); err != nil {
+		t.Fatal(err)
+	}
 	// Passing on a job for a reason about the job teaches a clear no, scored
 	// or not; pay or no reason teaches nothing.
 	dismiss := func(job int64, reason *string) {

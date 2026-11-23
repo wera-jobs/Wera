@@ -396,13 +396,14 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 		}
 	}
 
-	// 2. The user's rules on those facts, at no cost.
+	// 2. The user's rules on those facts, at no cost. Jobs asked for by
+	// id (opened by the user) keep their row, so the reason shows.
 	var candidates, rescore []scoring.Job
 	var ex []store.Exclusion
 	for _, j := range all {
 		if f := facts[j.ID]; f != nil {
 			if reason, evidence := scoring.PostLLMExclusion(scoring.Merge(f, nil), rules); reason != "" {
-				ex = append(ex, store.Exclusion{JobID: j.ID, Reason: reason, Evidence: evidence})
+				ex = append(ex, store.Exclusion{JobID: j.ID, Reason: reason, Evidence: evidence, Keep: len(onlyIDs) > 0})
 				continue
 			}
 		}

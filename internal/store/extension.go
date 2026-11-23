@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"wera/internal/normalize"
 )
 
 // APIToken is a connected browser extension (the token itself is never
@@ -271,6 +273,11 @@ func NormalizeJobURL(raw string) string {
 // added is shared, not duplicated. The company is matched by name to a
 // watched company when one exists; otherwise a "manual" company is created.
 func AddManualJob(ctx context.Context, pool *pgxpool.Pool, userID int64, in ManualJob) (int64, bool, error) {
+	// Cleaned like fetched postings (see pipeline.saveCompanyJobs): a NUL
+	// or invalid UTF-8 from a captured page would make Postgres refuse it.
+	for _, f := range []*string{&in.URL, &in.Company, &in.Title, &in.Location, &in.Department, &in.Description, &in.Industry} {
+		*f = normalize.Text(*f)
+	}
 	in.URL = NormalizeJobURL(in.URL)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -329,8 +336,9 @@ func AddManualJob(ctx context.Context, pool *pgxpool.Pool, userID int64, in Manu
 
 	sum := sha256.Sum256([]byte(in.URL))
 	extID := fmt.Sprintf("u%d-%s", userID, hex.EncodeToString(sum[:8]))
-	h := sha256.Sum256([]byte(in.Title + "\x00" + in.Location + "\x00" + in.Description))
-	contentHash := hex.EncodeToString(h[:])
+	// The same hash a fetch computes, so a board that later lists this
+	// posting unchanged keeps its facts, embedding and scores.
+	contentHash := normalize.ContentHash(in.Title, in.Location, in.Description)
 	var jobID int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO jobs (company_id, source, ext_id, title, location_raw, is_remote, url, department,

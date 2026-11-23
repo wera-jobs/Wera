@@ -2,6 +2,7 @@ package eightfold
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -68,5 +69,27 @@ func TestListAndDetail(t *testing.T) {
 	}
 	if _, err := a.List(context.Background(), "no-domain"); err == nil {
 		t.Error("bad token accepted")
+	}
+}
+
+// A deep page that fails makes the listing partial: the postings it did
+// get come back, flagged, so a full sweep closes nothing.
+func TestListReportsAFailedPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		if start == 10 {
+			http.Error(w, "too many requests", http.StatusServiceUnavailable)
+			return
+		}
+		var items []string
+		for id := start + 1; id <= min(start+10, 23); id++ {
+			items = append(items, fmt.Sprintf(`{"id":%d,"name":"Engineer %d"}`, id, id))
+		}
+		fmt.Fprintf(w, `{"count":23,"positions":[%s]}`, join(items))
+	}))
+	t.Cleanup(srv.Close)
+	jobs, err := NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL).List(context.Background(), "jobs.acme.com/acme.com")
+	if !errors.Is(err, sources.ErrPartialList) || len(jobs) != 13 {
+		t.Fatalf("got %d jobs, %v; want the 13 from the pages that worked and ErrPartialList", len(jobs), err)
 	}
 }

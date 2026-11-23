@@ -3,6 +3,7 @@ package smartrecruiters
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -62,7 +63,29 @@ func TestListAndDetail(t *testing.T) {
 	if j.URL != "https://jobs.smartrecruiters.com/TestCo/111-software-engineer" {
 		t.Errorf("url: %q", j.URL)
 	}
-	if _, err := a.List(context.Background(), "Nobody"); !errors.Is(err, sources.ErrBoardNotFound) {
-		t.Errorf("empty company: want ErrBoardNotFound, got %v", err)
+	// No open postings (or no such company: the API cannot tell): an empty
+	// board, so a watched company's last closed posting closes here too.
+	if jobs, err := a.List(context.Background(), "Nobody"); err != nil || len(jobs) != 0 {
+		t.Errorf("empty company: %d jobs, %v; want none and no error", len(jobs), err)
+	}
+}
+
+// A later page that fails makes the listing partial instead of complete.
+func TestListReportsAFailedPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("offset") != "0" {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		items := make([]string, pageSize)
+		for i := range items {
+			items[i] = fmt.Sprintf(`{"id":"%d","name":"Engineer %d"}`, i, i)
+		}
+		fmt.Fprintf(w, `{"totalFound":150,"content":[%s]}`, strings.Join(items, ","))
+	}))
+	t.Cleanup(srv.Close)
+	jobs, err := NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL).List(context.Background(), "TestCo")
+	if !errors.Is(err, sources.ErrPartialList) || len(jobs) != pageSize {
+		t.Fatalf("got %d jobs, %v; want the first page and ErrPartialList", len(jobs), err)
 	}
 }

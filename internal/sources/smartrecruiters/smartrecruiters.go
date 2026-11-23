@@ -72,7 +72,11 @@ type listResponse struct {
 	Content    []posting `json:"content"`
 }
 
-// List implements sources.DetailSource.
+// List implements sources.DetailSource. The API answers an unknown
+// company with an empty list, the same as a company with no open
+// postings, so an empty board is not an error: a watched company that
+// closed its last posting must close it here too. Callers that probe for
+// a board (CheckBoard, discover) treat zero postings as no board.
 func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, error) {
 	var jobs []sources.RawJob
 	for offset := 0; offset < maxListed; offset += pageSize {
@@ -81,13 +85,9 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 			a.baseURL, url.PathEscape(token), pageSize, offset)
 		if err := a.http.GetJSON(ctx, endpoint, &resp); err != nil {
 			if offset > 0 {
-				break
+				return jobs, fmt.Errorf("%w: offset %d: %w", sources.ErrPartialList, offset, err)
 			}
 			return nil, err
-		}
-		if offset == 0 && resp.TotalFound == 0 {
-			// Unknown companies return an empty list rather than a 404.
-			return nil, fmt.Errorf("%w: smartrecruiters company %s has no postings", sources.ErrBoardNotFound, token)
 		}
 		for _, p := range resp.Content {
 			remote := p.Location.Remote

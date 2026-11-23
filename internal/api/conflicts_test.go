@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"wera/internal/config"
 	"wera/internal/profile"
@@ -40,7 +41,18 @@ func TestFindConflicts(t *testing.T) {
 }
 
 func TestResolveConflicts(t *testing.T) {
-	ts, pool := testServer(t, nil)
+	// Keeping the details' work authorization filters the user's jobs again.
+	refiltered := make(chan int64, 1)
+	ts, pool := testServerWith(t, nil, func(s *Server) {
+		s.PrepareUser = func(_ context.Context, userID int64) error {
+			refiltered <- userID
+			return nil
+		}
+		s.Prefilter = func(context.Context, int64) error {
+			t.Error("Prefilter is a no-op once the profile has text; PrepareUser must run")
+			return nil
+		}
+	})
 	ctx := context.Background()
 	five := 5.0
 	answers, _ := json.Marshal(profile.Answers{WorkAuthorization: "sponsorship_future", CurrentTitle: "Analyst", YearsExperience: &five})
@@ -64,6 +76,14 @@ func TestResolveConflicts(t *testing.T) {
 	_ = json.Unmarshal(prof.Answers, &ans)
 	if ans.WorkAuthorization != "citizen_or_resident" || prof.Preferences.NeedsSponsorship {
 		t.Errorf("profile kept the old answer: %q, needs sponsorship %v", ans.WorkAuthorization, prof.Preferences.NeedsSponsorship)
+	}
+	select {
+	case id := <-refiltered:
+		if id != testUserID {
+			t.Errorf("refiltered user %d, want %d", id, testUserID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("resolving the work authorization did not filter the jobs again")
 	}
 	// Keep the profile: the details follow.
 	if code, body := do(t, client, http.MethodPost, ts.URL+"/api/applicant/conflicts/resolve", `{"key":"current_title","keep":"profile"}`); code != 200 || strings.TrimSpace(body) != `{"conflicts":[]}` {

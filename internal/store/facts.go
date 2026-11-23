@@ -63,6 +63,10 @@ func SaveFacts(ctx context.Context, pool *pgxpool.Pool, r scoring.FactsResult, m
 type Exclusion struct {
 	JobID            int64
 	Reason, Evidence string
+	// Keep keeps the row, marked excluded, even for a job the user does
+	// not track: they asked about this job (scored it on demand) and the
+	// detail view must show why it was ruled out.
+	Keep bool
 }
 
 // ExcludeUserJobs drops many of a user's jobs the facts rule out (without
@@ -71,13 +75,15 @@ func ExcludeUserJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, ex [
 	if len(ex) == 0 {
 		return nil
 	}
-	// Only a job the user tracks keeps a row, marked excluded; the rest
-	// leave user_jobs (see FilterForUser).
+	// Only a job the user tracks (or asked about, see Keep) keeps a row,
+	// marked excluded; the rest leave user_jobs (see FilterForUser).
 	b := &pgx.Batch{}
 	for _, e := range ex {
-		b.Queue(`
-			DELETE FROM user_jobs uj WHERE uj.user_id = $1 AND uj.job_id = $2
-			AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = uj.user_id AND a.job_id = uj.job_id)`, userID, e.JobID)
+		if !e.Keep {
+			b.Queue(`
+				DELETE FROM user_jobs uj WHERE uj.user_id = $1 AND uj.job_id = $2
+				AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.user_id = uj.user_id AND a.job_id = uj.job_id)`, userID, e.JobID)
+		}
 		b.Queue(`
 			UPDATE user_jobs SET stage = 'excluded', exclude_reason = $3, exclude_evidence = $4, updated_at = now()
 			WHERE user_id = $1 AND job_id = $2`, userID, e.JobID, e.Reason, nilIfEmpty(e.Evidence))
