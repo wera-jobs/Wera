@@ -45,6 +45,9 @@ func runDiscover(ctx context.Context, args []string) error {
 				if errors.Is(err, sources.ErrPartialList) && len(jobs) > 0 {
 					err = nil
 				}
+				if err == nil && len(jobs) == 0 && ats == "smartrecruiters" {
+					continue // unknown companies list as empty boards
+				}
 			} else {
 				jobs, err = src.Fetch(ctx, slug)
 			}
