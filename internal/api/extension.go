@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -414,6 +415,10 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 		remote = &t
 	}
 	user := currentUser(r)
+	if !s.addJobLimit.Allow(strconv.FormatInt(user.ID, 10)) {
+		s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("you have added %d jobs this hour; wait a little before adding more", addJobsPerHour))
+		return
+	}
 	id, created, err := store.AddManualJob(r.Context(), s.Pool, user.ID, store.ManualJob{
 		URL: in.URL, Company: in.Company, Title: in.Title, Location: in.Location, Remote: remote,
 		Department: in.Department, Description: in.Description, Industry: in.Industry, PostedAt: postedAt(in.Posted),
@@ -439,11 +444,25 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, status, job)
 }
 
+// addJobsPerHour is how many jobs one user can add in an hour (dashboard
+// and extension together).
+const addJobsPerHour = 30
+
 // afterAdd scores a just-added job for the user who added it, offers it
-// to everyone else, and starts watching the job board it came from.
+// to everyone else (their own runs score it), and starts watching the job
+// board it came from. At most cap(addSlots) run at once; the rest wait.
 func (s *Server) afterAdd(userID, jobID int64, jobURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	if s.addSlots != nil {
+		select {
+		case s.addSlots <- struct{}{}:
+			defer func() { <-s.addSlots }()
+		case <-ctx.Done():
+			s.Log.Warn("an added job waited too long for a slot", "user_id", userID, "job_id", jobID)
+			return
+		}
+	}
 	if s.ScoreNow != nil {
 		if err := s.ScoreNow(ctx, userID, jobID); err != nil {
 			s.Log.Warn("scoring an added job failed", "user_id", userID, "job_id", jobID, "err", err)
