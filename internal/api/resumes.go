@@ -395,7 +395,7 @@ func (s *Server) previewResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func resumeFilename(name, ext string) string {
-	base := safeFilename(strings.ReplaceAll(strings.TrimSpace(name), " ", "_") + "_Resume." + ext, ext)
+	base := safeFilename(strings.ReplaceAll(strings.TrimSpace(name), " ", "_")+"_Resume."+ext, ext)
 	if base == "" || strings.HasPrefix(base, ".") {
 		return "Resume." + ext
 	}
@@ -761,7 +761,7 @@ func (s *Server) coverLetterPDF(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("download") == "1" {
 		disposition = "attachment"
 	}
-	file := safeFilename(strings.ReplaceAll(name, " ", "_") + "_Cover_Letter.pdf", "pdf")
+	file := safeFilename(strings.ReplaceAll(name, " ", "_")+"_Cover_Letter.pdf", "pdf")
 	if file == "" || strings.HasPrefix(file, ".") || strings.HasPrefix(file, "_") {
 		file = "Cover_Letter.pdf"
 	}
