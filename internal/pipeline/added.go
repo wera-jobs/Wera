@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,6 +45,9 @@ func CheckBoard(ctx context.Context, registry map[string]sources.Source, ats, to
 	var jobs []sources.RawJob
 	if ds, ok := src.(sources.DetailSource); ok {
 		jobs, err = ds.List(ctx, token)
+		if errors.Is(err, sources.ErrPartialList) && len(jobs) > 0 {
+			err = nil // the board exists; the count is a floor
+		}
 	} else {
 		jobs, err = src.Fetch(ctx, token)
 	}

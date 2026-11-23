@@ -6,6 +6,7 @@ package eightfold
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -88,18 +89,23 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 		return nil, err
 	}
 	pages := []listResponse{first}
+	var partial error
 	if limit := min(first.Count, maxListed); limit > pageSize {
 		rest := make([]listResponse, (limit-1)/pageSize)
+		errs := make([]error, len(rest))
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(pageConcurrency)
 		for i := range rest {
 			g.Go(func() error {
-				rest[i], _ = page(gctx, (i+1)*pageSize) // a failed page drops only itself
+				// A failed page drops only itself, and the listing is
+				// then reported as partial.
+				rest[i], errs[i] = page(gctx, (i+1)*pageSize)
 				return nil
 			})
 		}
 		_ = g.Wait()
 		pages = append(pages, rest...)
+		partial = errors.Join(errs...)
 	}
 
 	var jobs []sources.RawJob
@@ -113,7 +119,13 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 			jobs = append(jobs, toRaw(p))
 		}
 	}
-	return jobs, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return jobs, err
+	}
+	if partial != nil {
+		return jobs, fmt.Errorf("%w: %w", sources.ErrPartialList, partial)
+	}
+	return jobs, nil
 }
 
 func toRaw(p position) sources.RawJob {

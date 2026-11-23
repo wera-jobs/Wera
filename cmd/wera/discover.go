@@ -42,6 +42,9 @@ func runDiscover(ctx context.Context, args []string) error {
 			var err error
 			if ds, ok := src.(sources.DetailSource); ok {
 				jobs, err = ds.List(ctx, slug) // listing is enough to confirm a board
+				if errors.Is(err, sources.ErrPartialList) && len(jobs) > 0 {
+					err = nil
+				}
 			} else {
 				jobs, err = src.Fetch(ctx, slug)
 			}

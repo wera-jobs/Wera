@@ -268,6 +268,12 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 		jobs, complete, err = il.ListNew(ctx, c.Token, known)
 	} else {
 		jobs, err = src.List(ctx, c.Token)
+		if errors.Is(err, sources.ErrPartialList) {
+			// Save what was listed, but close nothing on a sweep with
+			// pages missing, and sweep again next run.
+			f.Log.Warn("full sweep missed pages; not closing postings", "company", c.Name, "listed", len(jobs), "err", err)
+			complete, err = false, nil
+		}
 	}
 	if err != nil {
 		return 0, 0, 0, err
