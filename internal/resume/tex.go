@@ -49,6 +49,12 @@ func texURL(url string) string {
 	return strings.NewReplacer(`\`, "", `{`, "%7B", `}`, "%7D", `%`, `\%`, `#`, `\#`).Replace(url)
 }
 
+// untexURL reads a URL from \href back: texURL's escapes, and the ones a
+// user editing the LaTeX may add, are not part of the address.
+func untexURL(url string) string {
+	return strings.NewReplacer(`\%`, "%", `\#`, "#", `\&`, "&", `\_`, "_").Replace(url)
+}
+
 func href(url, text string) string {
 	return `\href{` + texURL(url) + `}{` + esc(text) + `}`
 }
@@ -270,7 +276,7 @@ func plain(s string) (text, firstURL string) {
 	defer func() { text = restoreRE.Replace(text) }()
 	s = vspaceRE.ReplaceAllString(s, "")
 	if m := hrefRE.FindStringSubmatch(s); m != nil {
-		firstURL = m[1]
+		firstURL = untexURL(m[1])
 	}
 	s = hrefRE.ReplaceAllString(s, "{")
 	s = cmdArgRE.ReplaceAllString(s, "")
@@ -453,7 +459,7 @@ func splitLink(s string) (desc, label, url string) {
 	if loc == nil {
 		return pr(s), "", ""
 	}
-	url = s[loc[2]:loc[3]]
+	url = untexURL(s[loc[2]:loc[3]])
 	inner, _, _ := readArg(s, loc[1]-1)
 	return pr(s[:loc[0]]), p(inner), url
 }

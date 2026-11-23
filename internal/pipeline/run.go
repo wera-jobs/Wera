@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -222,6 +223,13 @@ func (p *Pipeline) MatchUser(ctx context.Context, prof *store.Profile) (excluded
 	return fst.Excluded, st, err
 }
 
+// scoreNowLockWait is how long ScoreNow waits for a background match of
+// the same user to finish.
+var scoreNowLockWait = 10 * time.Second
+
+// errUserBusy reports that ScoreNow left the job to a match in progress.
+var errUserBusy = errors.New("the user is being matched; the job is left to that run")
+
 func deferredOf(s *FetchStats) int {
 	if s == nil {
 		return 0
@@ -231,8 +239,20 @@ func deferredOf(s *FetchStats) int {
 
 // ScoreNow scores one of the user's unscored jobs right away (the user
 // opened it), within the user's allowance. Already-scored jobs and jobs
-// the user has no match for are left alone.
+// the user has no match for are left alone. It takes the user's lock, so
+// it never scores alongside a background match of the same user; when
+// that match does not end within scoreNowLockWait, the job is left to it.
 func (p *Pipeline) ScoreNow(ctx context.Context, userID, jobID int64) error {
+	waitCtx, cancel := context.WithTimeout(ctx, scoreNowLockWait)
+	release, err := store.WaitUserLock(waitCtx, p.Pool, userID)
+	cancel()
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			return errUserBusy
+		}
+		return err
+	}
+	defer release(context.Background())
 	prof, err := store.GetProfile(ctx, p.Pool, userID)
 	if err != nil || prof == nil || !prof.Ready() {
 		return err

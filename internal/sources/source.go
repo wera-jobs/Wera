@@ -4,6 +4,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -46,11 +47,19 @@ type ConditionalSource interface {
 // Fetch still returns complete jobs (used by `wera discover`).
 type DetailSource interface {
 	Source
-	// List returns the open postings without descriptions.
+	// List returns the open postings without descriptions. When some of
+	// the board could not be listed it returns what it got with an error
+	// wrapping ErrPartialList.
 	List(ctx context.Context, token string) ([]RawJob, error)
 	// Detail completes one listed posting (description, dates, ...).
 	Detail(ctx context.Context, token string, j *RawJob) error
 }
+
+// ErrPartialList is returned (wrapped, alongside the postings it did get)
+// by a List that could not read every page of the board. The postings are
+// real and can be saved, but the listing must not be used to close the
+// ones it is missing.
+var ErrPartialList = errors.New("partial listing")
 
 // IncrementalLister is a DetailSource that can stop listing early: its
 // board is ordered newest first, so ListNew pages until a page holds no

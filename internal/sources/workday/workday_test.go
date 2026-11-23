@@ -168,3 +168,30 @@ func TestListNewStopsAtKnownPostings(t *testing.T) {
 		t.Fatalf("all new: got %d jobs, complete=%v, %d pages, %v; want the whole board", len(jobs), complete, pages, err)
 	}
 }
+
+// A deep page that fails makes the listing partial: the postings it did
+// get come back, flagged, so a full sweep closes nothing.
+func TestListReportsAFailedPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req searchRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Offset == 20 {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		var items []string
+		for id := req.Offset + 1; id <= min(req.Offset+req.Limit, 45); id++ {
+			items = append(items, fmt.Sprintf(`{"title":"Job %d","externalPath":"/job/%d"}`, id, id))
+		}
+		fmt.Fprintf(w, `{"total":45,"jobPostings":[%s]}`, strings.Join(items, ","))
+	}))
+	t.Cleanup(srv.Close)
+	jobs, err := NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL).List(context.Background(), "acme.wd5/Careers")
+	if !errors.Is(err, sources.ErrPartialList) || len(jobs) != 25 {
+		t.Fatalf("got %d jobs, %v; want the 25 from the pages that worked and ErrPartialList", len(jobs), err)
+	}
+	pages := 0
+	if jobs, err := boardServer(t, &pages).List(context.Background(), "acme.wd5/Careers"); err != nil || len(jobs) != 45 {
+		t.Fatalf("whole board: %d jobs, %v", len(jobs), err)
+	}
+}

@@ -10,8 +10,8 @@ import (
 
 // TryAdvisoryLock attempts the run lock (PLAN.md section 7, key 4242) on a
 // dedicated pool connection. When acquired, the returned release function
-// must be called (with a live context) to unlock and return the
-// connection. Advisory locks are session-scoped, so the connection is
+// must be called to unlock and return the connection; it works even with
+// a canceled context. Advisory locks are session-scoped, so the connection is
 // held between the two calls.
 func TryAdvisoryLock(ctx context.Context, pool *pgxpool.Pool, key int64) (acquired bool, release func(context.Context), err error) {
 	conn, err := pool.Acquire(ctx)
@@ -26,13 +26,25 @@ func TryAdvisoryLock(ctx context.Context, pool *pgxpool.Pool, key int64) (acquir
 		conn.Release()
 		return false, nil, nil
 	}
-	return true, func(releaseCtx context.Context) {
-		defer conn.Release()
-		if _, uerr := conn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1)", key); uerr != nil {
-			// The connection may be dead; Postgres frees the lock with it.
-			_ = uerr
+	return true, unlocker(conn, "SELECT pg_advisory_unlock($1)", key), nil
+}
+
+// unlocker returns the release function for a session advisory lock held on
+// conn. The unlock runs on its own short context, so a caller whose context
+// is already canceled (a shutdown) still frees the lock. If the unlock
+// fails anyway, the connection is closed rather than returned to the pool:
+// a pooled connection would keep the lock, and Postgres frees it only when
+// the session ends.
+func unlocker(conn *pgxpool.Conn, sql string, args ...any) func(context.Context) {
+	return func(releaseCtx context.Context) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(releaseCtx), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRow(ctx, sql, args...).Scan(&unlocked); err != nil || !unlocked {
+			_ = conn.Conn().Close(ctx)
 		}
-	}, nil
+		conn.Release()
+	}
 }
 
 // TryUserLock takes the per-user matching lock (advisory lock pair
@@ -52,10 +64,7 @@ func TryUserLock(ctx context.Context, pool *pgxpool.Pool, userID int64) (acquire
 		conn.Release()
 		return false, nil, nil
 	}
-	return true, func(releaseCtx context.Context) {
-		defer conn.Release()
-		_, _ = conn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1, $2)", userLockClass, int32(userID))
-	}, nil
+	return true, unlocker(conn, "SELECT pg_advisory_unlock($1, $2)", userLockClass, int32(userID)), nil
 }
 
 // WaitUserLock waits for the per-user matching lock (see TryUserLock)

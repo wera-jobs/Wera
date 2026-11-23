@@ -3,8 +3,10 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -211,6 +213,17 @@ func TestFetchUnknownCompany(t *testing.T) {
 type detailBoard struct {
 	jobs    []sources.RawJob
 	details atomic.Int64
+	// partial lists only the first posting and reports the rest missing.
+	partial bool
+	// perRun caps the details per run (0 is the fetcher's default).
+	perRun int
+}
+
+func (b *detailBoard) MaxDetailsPerRun() int {
+	if b.perRun > 0 {
+		return b.perRun
+	}
+	return maxDetailsPerRun
 }
 
 func (b *detailBoard) Name() string { return "detailboard" }
@@ -221,6 +234,9 @@ func (b *detailBoard) List(context.Context, string) ([]sources.RawJob, error) {
 	out := make([]sources.RawJob, len(b.jobs))
 	for i, j := range b.jobs {
 		out[i] = sources.RawJob{ExtID: j.ExtID, Title: j.Title, LocationRaw: j.LocationRaw, URL: j.URL}
+	}
+	if b.partial {
+		return out[:1], fmt.Errorf("%w: page 2: 503", sources.ErrPartialList)
 	}
 	return out, nil
 }
@@ -264,6 +280,55 @@ func TestFetchDetailsOnlyForNewPostings(t *testing.T) {
 	f.DetailBudget = 0
 	if st, _ := f.Run(ctx, cos, name); st.JobsNew != 1 {
 		t.Errorf("the next run did not catch up: %+v", st)
+	}
+}
+
+// A sweep with pages missing saves what it listed but closes nothing,
+// and is not recorded as a full sweep.
+func TestFetchPartialSweepClosesNothing(t *testing.T) {
+	board := &detailBoard{jobs: []sources.RawJob{raw("1", "SRE"), raw("2", "Platform Engineer"), raw("3", "DevOps Engineer")}}
+	f := newFetcher(t, map[string]sources.Source{"detailboard": board})
+	ctx := context.Background()
+	companyID, name := testutil.Company(t, f.Pool, "ai_ml")
+	cos := []config.Company{{Name: name, ATS: "detailboard", Token: name, Industry: "ai_ml"}}
+	if _, err := f.Run(ctx, cos, name); err != nil {
+		t.Fatal(err)
+	}
+	swept, _ := store.LastFullFetch(ctx, f.Pool, companyID)
+
+	board.partial = true
+	board.jobs = append([]sources.RawJob{raw("4", "Data Engineer")}, board.jobs...)
+	if st, err := f.Run(ctx, cos, name); err != nil || st.JobsNew != 1 || st.CompaniesOK != 1 {
+		t.Fatalf("partial sweep: %+v %v", st, err)
+	}
+	var closed int64
+	if err := f.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE company_id = $1 AND closed_at IS NOT NULL`, companyID).Scan(&closed); err != nil || closed != 0 {
+		t.Errorf("a partial sweep closed %d postings (%v)", closed, err)
+	}
+	if again, _ := store.LastFullFetch(ctx, f.Pool, companyID); !again.Equal(swept) {
+		t.Errorf("a partial sweep was recorded as full: %v, was %v", again, swept)
+	}
+}
+
+// A sweep that leaves new postings for a later run is not recorded, so the
+// next run sweeps again instead of listing only the newest page.
+func TestFetchCappedSweepIsNotRecorded(t *testing.T) {
+	board := &detailBoard{perRun: 2}
+	for i := 1; i <= 5; i++ {
+		board.jobs = append(board.jobs, raw(strconv.Itoa(i), fmt.Sprintf("Engineer %d", i)))
+	}
+	f := newFetcher(t, map[string]sources.Source{"detailboard": board})
+	ctx := context.Background()
+	companyID, name := testutil.Company(t, f.Pool, "ai_ml")
+	cos := []config.Company{{Name: name, ATS: "detailboard", Token: name, Industry: "ai_ml"}}
+	for run, want := range []int{2, 2, 1} {
+		if st, err := f.Run(ctx, cos, name); err != nil || st.JobsNew != want {
+			t.Fatalf("run %d: %+v %v; want %d new", run+1, st, err, want)
+		}
+		swept, _ := store.LastFullFetch(ctx, f.Pool, companyID)
+		if drained := run == 2; swept.IsZero() == drained {
+			t.Errorf("run %d: recorded as a full sweep = %v, want %v", run+1, !swept.IsZero(), drained)
+		}
 	}
 }
 

@@ -171,7 +171,7 @@ func JobKeywords(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64) (
 	err := pool.QueryRow(ctx, `
 		SELECT f.facts->'skills_required', a.skills_matched, a.skills_missing, COALESCE(j.description, '')
 		FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
-		LEFT JOIN job_facts f ON f.job_id = j.id
+		LEFT JOIN job_facts f ON f.job_id = j.id AND f.content_hash = j.content_hash
 		LEFT JOIN analyses a ON a.id = uj.analysis_id
 		WHERE uj.user_id = $1 AND uj.job_id = $2`, userID, jobID).Scan(&facts, &matched, &missing, &desc)
 	if err != nil {
@@ -262,9 +262,9 @@ func JobFitInputs(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64) 
 	var facts []byte
 	err = pool.QueryRow(ctx, `
 		SELECT a.fit_score, COALESCE(a.raw #>> '{}', ''), f.facts->'skills_required'
-		FROM user_jobs uj
+		FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
 		LEFT JOIN analyses a ON a.id = uj.analysis_id
-		LEFT JOIN job_facts f ON f.job_id = uj.job_id
+		LEFT JOIN job_facts f ON f.job_id = j.id AND f.content_hash = j.content_hash
 		WHERE uj.user_id = $1 AND uj.job_id = $2`, userID, jobID).Scan(&score, &raw, &facts)
 	if err == nil && len(facts) > 0 {
 		_ = json.Unmarshal(facts, &required)

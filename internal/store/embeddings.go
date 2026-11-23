@@ -111,7 +111,9 @@ const DismissedScore = 5
 // methods), with the job's embedding from this model: the limit most recent,
 // newest first. Jobs without such an embedding are left out. A job the user
 // passed on with one of LearnedDismissReasons counts as DismissedScore,
-// scored or not: the user's own no outranks the AI's guess.
+// scored or not: the user's own no outranks the AI's guess. The user's
+// scores include analyses linked from the cache (another account with
+// the same profile text scored the job first).
 func ScoredVectors(ctx context.Context, pool *pgxpool.Pool, userID int64, keys []string, model string, limit int) ([]ScoredVector, error) {
 	rows, err := pool.Query(ctx, `
 		WITH dismissed AS (
@@ -124,8 +126,12 @@ func ScoredVectors(ctx context.Context, pool *pgxpool.Pool, userID int64, keys [
 			UNION ALL
 			SELECT fit_score, embedding, created_at FROM (
 				SELECT DISTINCT ON (a.job_id) a.job_id, a.fit_score, e.embedding, a.created_at
-				FROM analyses a JOIN job_embeddings e ON e.job_id = a.job_id AND e.model = $3
-				WHERE a.user_id = $1 AND a.kind = 'score' AND a.fit_score IS NOT NULL AND a.profile_hash = ANY($2::text[])
+				FROM (
+					SELECT * FROM analyses WHERE user_id = $1
+					UNION
+					SELECT a.* FROM user_jobs uj JOIN analyses a ON a.id = uj.analysis_id WHERE uj.user_id = $1
+				) a JOIN job_embeddings e ON e.job_id = a.job_id AND e.model = $3
+				WHERE a.kind = 'score' AND a.fit_score IS NOT NULL AND a.profile_hash = ANY($2::text[])
 				ORDER BY a.job_id, a.created_at DESC
 			) newest WHERE job_id NOT IN (SELECT job_id FROM dismissed)
 		) learned ORDER BY at DESC LIMIT $4`, userID, keys, model, limit, LearnedDismissReasons, DismissedScore)
