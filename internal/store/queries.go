@@ -15,7 +15,7 @@ type JobQuery struct {
 	Industry     string
 	Category     string
 	MinScore     int
-	MinPay       int    // a year's pay (an hourly rate counts 2,080 hours); jobs stating no pay are left out
+	MinPay       int    // a year's pay in US dollars (an hourly rate counts 2,080 hours); jobs stating no pay or pay in another currency are left out
 	Sponsorship  string // "yes" | "unknown" (only these two are meaningful)
 	WorkMode     string
 	Status       string // application status
@@ -278,7 +278,9 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	}
 	if q.MinPay > 0 {
 		args = append(args, q.MinPay)
-		where = append(where, fmt.Sprintf("COALESCE(j.pay_max, j.pay_min) * CASE j.pay_period WHEN 'hour' THEN 2080 ELSE 1 END >= $%d", len(args)))
+		// The minimum is US dollars: pay in another currency can't be
+		// compared without a rate, so it doesn't count as meeting it.
+		where = append(where, fmt.Sprintf("COALESCE(j.pay_currency, 'USD') = 'USD' AND COALESCE(j.pay_max, j.pay_min) * CASE j.pay_period WHEN 'hour' THEN 2080 ELSE 1 END >= $%d", len(args)))
 	}
 	if q.Sponsorship != "" {
 		args = append(args, q.Sponsorship)
