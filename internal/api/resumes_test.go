@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
@@ -400,5 +401,20 @@ func TestDownloadFilenamesKeepTheirExtension(t *testing.T) {
 	}
 	if got := safeFilename("cv.TEX", "tex"); got != "cv.TEX" {
 		t.Errorf("case: %q", got)
+	}
+}
+
+// A resume that can't be read back after saving (here, the request is
+// already canceled) answers 500 instead of panicking on a nil resume.
+func TestRereadFailureIs500(t *testing.T) {
+	var srv *Server
+	testServerWith(t, nil, func(s *Server) { srv = s })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest(http.MethodPut, "/api/resumes/1", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	doc, ok := srv.reread(w, r, testUserID, 1)
+	if ok || doc != nil || w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "query failed") {
+		t.Errorf("reread with a canceled request: ok=%v doc=%v %d %s", ok, doc, w.Code, w.Body.String())
 	}
 }
