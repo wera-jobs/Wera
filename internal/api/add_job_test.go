@@ -20,7 +20,7 @@ func TestAddJobIsLimitedAndBounded(t *testing.T) {
 	var started sync.WaitGroup
 	release := make(chan struct{})
 	ts, pool := testServerWith(t, nil, func(s *Server) {
-		s.ScoreNow = func(ctx context.Context, userID, jobID int64) error {
+		s.ScoreNow = func(ctx context.Context, _, _ int64) error {
 			n := running.Add(1)
 			for {
 				m := most.Load()
