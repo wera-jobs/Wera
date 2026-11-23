@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.35.4](https://github.com/wera-jobs/Wera/compare/wera-v0.35.3...wera-v0.35.4) (2026-11-23)
+
+
+### Bug Fixes
+
+* **api:** filter jobs again after a resolved work authorization conflict ([96c57f4](https://github.com/wera-jobs/Wera/commit/96c57f423cc24a0fafbdfb67e504240f39bee7ad)), closes [#286](https://github.com/wera-jobs/Wera/issues/286)
+* **pipeline:** keep a job scored on demand when its facts exclude it ([4d8bbe3](https://github.com/wera-jobs/Wera/commit/4d8bbe3a1c2abeef7eedd25251ee3bc10c78ae70)), closes [#284](https://github.com/wera-jobs/Wera/issues/284)
+* **pipeline:** keep sweeping a board until its new postings are saved ([01ab97b](https://github.com/wera-jobs/Wera/commit/01ab97bb5ad9b0e22af426dc1b6bdd9ba92a4105)), closes [#282](https://github.com/wera-jobs/Wera/issues/282)
+* **resume:** read links back from LaTeX without their escapes ([5c3ec05](https://github.com/wera-jobs/Wera/commit/5c3ec0571c2c78a7dd674cb183630dec0828eb9c)), closes [#290](https://github.com/wera-jobs/Wera/issues/290)
+* **sources:** report a Workday or Eightfold listing with failed pages ([b24aae4](https://github.com/wera-jobs/Wera/commit/b24aae4a6f7a3d23cf0fec207e14653444d233f1)), closes [#283](https://github.com/wera-jobs/Wera/issues/283)
+* **sources:** treat an empty SmartRecruiters board as empty, not missing ([829c258](https://github.com/wera-jobs/Wera/commit/829c258e02afeea9089b1c35c02b3bc0b9f248c4)), closes [#287](https://github.com/wera-jobs/Wera/issues/287)
+* **store:** clean and hash added jobs like fetched ones ([2d0e676](https://github.com/wera-jobs/Wera/commit/2d0e676d4af0ca0b967c4af353ba68ebf45fac21)), closes [#288](https://github.com/wera-jobs/Wera/issues/288)
+* **store:** free advisory locks when the release context is canceled ([2c77577](https://github.com/wera-jobs/Wera/commit/2c775774f6a23eef1d4a937eb86b3fec1f36b648)), closes [#285](https://github.com/wera-jobs/Wera/issues/285)
+* **store:** learn from linked scores and skip stale facts in resumes ([938b22a](https://github.com/wera-jobs/Wera/commit/938b22a17be6aff703303fb3257c3f05dd1c16b2)), closes [#289](https://github.com/wera-jobs/Wera/issues/289)
+
 ## [0.35.3](https://github.com/wera-jobs/Wera/compare/wera-v0.35.2...wera-v0.35.3) (2026-11-23)
 
 
