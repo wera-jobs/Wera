@@ -86,6 +86,16 @@ func TestResumeLifecycle(t *testing.T) {
 	if code, tex := do(t, client, http.MethodGet, url+"/tex", ""); code != 200 || !strings.Contains(tex, `\resumeSubheading`) || !strings.Contains(tex, "Ada King") {
 		t.Errorf("tex: %d", code)
 	}
+	for path, want := range map[string]string{"/tex": "Ada_King_Resume.tex", "/txt?download=1": "Ada_King_Resume.txt"} {
+		resp, err := client.Get(url + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := resp.Header.Get("Content-Disposition"); got != `attachment; filename="`+want+`"` {
+			t.Errorf("%s: Content-Disposition %q, want %s", path, got, want)
+		}
+	}
 
 	b, _ = json.Marshal(map[string]any{"data": doc["data"], "layout": map[string]any{}})
 	code, body = do(t, client, http.MethodPost, ts.URL+"/api/resumes/preview", string(b))
@@ -370,5 +380,25 @@ func TestPostingKeywords(t *testing.T) {
 	}
 	if code, _ := do(t, client, http.MethodPost, url, `nonsense`); code != 400 {
 		t.Errorf("bad body: want 400, got %d", code)
+	}
+}
+
+func TestDownloadFilenamesKeepTheirExtension(t *testing.T) {
+	for _, c := range []struct{ name, ext, want string }{
+		{"Ada King", "pdf", "Ada_King_Resume.pdf"},
+		{"Ada King", "tex", "Ada_King_Resume.tex"},
+		{"Ada King", "txt", "Ada_King_Resume.txt"},
+		{"", "tex", "_Resume.tex"},
+		{"李雷", "txt", "_Resume.txt"},
+	} {
+		if got := resumeFilename(c.name, c.ext); got != c.want {
+			t.Errorf("resumeFilename(%q, %q) = %q, want %q", c.name, c.ext, got, c.want)
+		}
+	}
+	if got := safeFilename("../../etc/notes.docx", "pdf"); got != "resume.pdf" {
+		t.Errorf("a name without the extension: %q", got)
+	}
+	if got := safeFilename("cv.TEX", "tex"); got != "cv.TEX" {
+		t.Errorf("case: %q", got)
 	}
 }

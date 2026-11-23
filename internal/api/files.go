@@ -125,8 +125,9 @@ func (s *Server) getResumeFile(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// safeFilename keeps a short ASCII name for Content-Disposition.
-func safeFilename(name string) string {
+// safeFilename keeps a short ASCII name for Content-Disposition, ending in
+// "."+ext; a name without it becomes "resume."+ext.
+func safeFilename(name, ext string) string {
 	base := filepath.Base(strings.ReplaceAll(name, "\\", "/"))
 	var b strings.Builder
 	for _, r := range base {
@@ -135,8 +136,8 @@ func safeFilename(name string) string {
 		}
 	}
 	out := strings.TrimSpace(b.String())
-	if !strings.HasSuffix(strings.ToLower(out), ".pdf") || len(out) < 5 {
-		out = "resume.pdf"
+	if !strings.HasSuffix(strings.ToLower(out), "."+ext) || len(out) <= len(ext)+1 {
+		out = "resume." + ext
 	}
 	if len(out) > 80 {
 		out = out[len(out)-80:]
