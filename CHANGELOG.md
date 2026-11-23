@@ -6,7 +6,6 @@
 ### Bug Fixes
 
 * **api:** filter jobs again after a resolved work authorization conflict ([96c57f4](https://github.com/wera-jobs/Wera/commit/96c57f423cc24a0fafbdfb67e504240f39bee7ad)), closes [#286](https://github.com/wera-jobs/Wera/issues/286)
-* nine backend bugs from the Nov 23 audit ([be4a74e](https://github.com/wera-jobs/Wera/commit/be4a74ede2e1a6ab75bf7b796a1bd9825cb7cf6a))
 * **pipeline:** keep a job scored on demand when its facts exclude it ([4d8bbe3](https://github.com/wera-jobs/Wera/commit/4d8bbe3a1c2abeef7eedd25251ee3bc10c78ae70)), closes [#284](https://github.com/wera-jobs/Wera/issues/284)
 * **pipeline:** keep sweeping a board until its new postings are saved ([01ab97b](https://github.com/wera-jobs/Wera/commit/01ab97bb5ad9b0e22af426dc1b6bdd9ba92a4105)), closes [#282](https://github.com/wera-jobs/Wera/issues/282)
 * **resume:** read links back from LaTeX without their escapes ([5c3ec05](https://github.com/wera-jobs/Wera/commit/5c3ec0571c2c78a7dd674cb183630dec0828eb9c)), closes [#290](https://github.com/wera-jobs/Wera/issues/290)
