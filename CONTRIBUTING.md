@@ -24,8 +24,9 @@ make cover                         # CI requires 70% of internal/...
 make vuln                          # govulncheck
 ```
 
-Integration tests share one database, so packages run one at a time
-(`go test -p 1`). They create and remove their own fixtures.
+Integration tests share one database, so `scripts/test.sh` runs the
+packages that use it one at a time and every other package in parallel
+beside them. They create and remove their own fixtures.
 
 ## Layout
 

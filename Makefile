@@ -14,10 +14,10 @@ build:
 # never the live database). Packages run one at a time because they share
 # that database.
 test:
-	go test -p 1 -race ./...
+	scripts/test.sh
 
 cover:
-	go test -p 1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
+	scripts/test.sh
 	go tool cover -func=coverage.out | tail -1
 
 lint:

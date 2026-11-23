@@ -73,10 +73,10 @@ jobs:
           typst --version
       - name: Migrate
         run: go run ./cmd/wera migrate
-      # One pass for both: the race detector and coverage used to run the
-      # whole suite twice.
+      # One pass for both race detector and coverage. Database packages run
+      # one at a time; the rest run in parallel beside them.
       - name: Test (race detector, coverage)
-        run: go test -p 1 -race -coverpkg=./internal/... -coverprofile=coverage.out ./...
+        run: scripts/test.sh
       - name: Coverage
         run: |
           pct=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$3); print $3}')
