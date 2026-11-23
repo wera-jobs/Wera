@@ -178,13 +178,20 @@ func (s *Server) resolveConflict(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusInternalServerError, "save failed")
 			return
 		}
-		// Sponsorship changes which jobs are filtered out.
-		if in.Key == "work_authorization" && s.Prefilter != nil {
-			s.background("prefilter", func() {
+		// Sponsorship changes which jobs are filtered out. A profile with
+		// text (every profile that can have a conflict) is filtered by
+		// PrepareUser, which also checks scored jobs and known facts
+		// again; Prefilter only covers setup, before the text exists.
+		refilter := s.PrepareUser
+		if refilter == nil {
+			refilter = s.Prefilter
+		}
+		if in.Key == "work_authorization" && refilter != nil {
+			s.background("refilter", func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
-				if err := s.Prefilter(ctx, user.ID); err != nil {
-					s.Log.Warn("prefilter after a resolved conflict failed", "user_id", user.ID, "err", err)
+				if err := refilter(ctx, user.ID); err != nil {
+					s.Log.Warn("refilter after a resolved conflict failed", "user_id", user.ID, "err", err)
 				}
 			})
 		}
