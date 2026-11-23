@@ -142,7 +142,16 @@ type UsageTotals struct {
 	CachedPercent    float64 `json:"cached_percent"`
 }
 
-// Usage summarizes token usage and cost per day (last 30 days) and total.
+// allLLMCalls is every AI call with its tokens and cost: fit scoring in
+// analyses, everything else (facts, quick grades, letters, prep...) in
+// llm_usage. The two never record the same call.
+const allLLMCalls = `(
+		SELECT created_at, prompt_tokens, cached_tokens, completion_tokens, cost_usd FROM analyses
+		UNION ALL
+		SELECT created_at, prompt_tokens, cached_tokens, completion_tokens, cost_usd FROM llm_usage) calls`
+
+// Usage summarizes token usage and cost per day (last 30 days) and total,
+// across every kind of AI call. Analyses counts fit analyses only.
 func Usage(ctx context.Context, pool *pgxpool.Pool) (*UsageView, error) {
 	out := &UsageView{PerDay: []UsageDay{}}
 
@@ -150,7 +159,7 @@ func Usage(ctx context.Context, pool *pgxpool.Pool) (*UsageView, error) {
 		SELECT to_char(created_at, 'YYYY-MM-DD'),
 		       COALESCE(sum(prompt_tokens), 0), COALESCE(sum(cached_tokens), 0),
 		       COALESCE(sum(completion_tokens), 0), COALESCE(sum(cost_usd), 0)
-		FROM analyses
+		FROM `+allLLMCalls+`
 		GROUP BY 1 ORDER BY 1 DESC LIMIT 30`)
 	if err != nil {
 		return nil, err
@@ -169,11 +178,11 @@ func Usage(ctx context.Context, pool *pgxpool.Pool) (*UsageView, error) {
 
 	var t UsageTotals
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*), COALESCE(sum(prompt_tokens), 0),
+		SELECT (SELECT count(*) FROM analyses), COALESCE(sum(prompt_tokens), 0),
 		       COALESCE(sum(cached_tokens), 0), COALESCE(sum(completion_tokens), 0),
 		       COALESCE(sum(cost_usd), 0),
 		       COALESCE(sum(cached_tokens)::float / NULLIF(sum(prompt_tokens), 0) * 100, 0)
-		FROM analyses`).Scan(&t.Analyses, &t.PromptTokens, &t.CachedTokens,
+		FROM `+allLLMCalls).Scan(&t.Analyses, &t.PromptTokens, &t.CachedTokens,
 		&t.CompletionTokens, &t.CostUSD, &t.CachedPercent); err != nil {
 		return nil, err
 	}
