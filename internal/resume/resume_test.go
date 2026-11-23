@@ -380,3 +380,39 @@ func TestUnlabeledSkillGroup(t *testing.T) {
 		}
 	}
 }
+
+// Links with a fragment or percent-encoding survive export and import,
+// again and again, in every template.
+func TestTeXRoundTripKeepsURLs(t *testing.T) {
+	const header, project = "https://ada.dev/work#top", "https://github.com/ada/my%20tool#readme"
+	for _, tpl := range Templates {
+		r := sample(t)
+		r.Links = []Link{{URL: header, Label: "ada.dev"}}
+		set := false
+		for i := range r.Sections {
+			if r.Sections[i].Kind == KindProjects {
+				r.Sections[i].Entries[0].URL, set = project, true
+			}
+		}
+		if !set {
+			t.Fatal("the sample has no project to link")
+		}
+		l := DefaultLayout
+		l.Template = tpl.ID
+		for round := 1; round <= 3; round++ {
+			back, _, err := ImportTeX(r.ExportTeX(l))
+			if err != nil {
+				t.Fatalf("%s round %d: %v", tpl.ID, round, err)
+			}
+			if len(back.Links) == 0 || back.Links[0].URL != header {
+				t.Fatalf("%s round %d: header links %+v, want %s", tpl.ID, round, back.Links, header)
+			}
+			for _, s := range back.Sections {
+				if s.Kind == KindProjects && s.Entries[0].URL != project {
+					t.Fatalf("%s round %d: project URL %q, want %s", tpl.ID, round, s.Entries[0].URL, project)
+				}
+			}
+			r = back
+		}
+	}
+}
