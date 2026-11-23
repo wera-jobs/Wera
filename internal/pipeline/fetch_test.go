@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -214,6 +215,15 @@ type detailBoard struct {
 	details atomic.Int64
 	// partial lists only the first posting and reports the rest missing.
 	partial bool
+	// perRun caps the details per run (0 is the fetcher's default).
+	perRun int
+}
+
+func (b *detailBoard) MaxDetailsPerRun() int {
+	if b.perRun > 0 {
+		return b.perRun
+	}
+	return maxDetailsPerRun
 }
 
 func (b *detailBoard) Name() string { return "detailboard" }
@@ -297,6 +307,28 @@ func TestFetchPartialSweepClosesNothing(t *testing.T) {
 	}
 	if again, _ := store.LastFullFetch(ctx, f.Pool, companyID); !again.Equal(swept) {
 		t.Errorf("a partial sweep was recorded as full: %v, was %v", again, swept)
+	}
+}
+
+// A sweep that leaves new postings for a later run is not recorded, so the
+// next run sweeps again instead of listing only the newest page.
+func TestFetchCappedSweepIsNotRecorded(t *testing.T) {
+	board := &detailBoard{perRun: 2}
+	for i := 1; i <= 5; i++ {
+		board.jobs = append(board.jobs, raw(strconv.Itoa(i), fmt.Sprintf("Engineer %d", i)))
+	}
+	f := newFetcher(t, map[string]sources.Source{"detailboard": board})
+	ctx := context.Background()
+	companyID, name := testutil.Company(t, f.Pool, "ai_ml")
+	cos := []config.Company{{Name: name, ATS: "detailboard", Token: name, Industry: "ai_ml"}}
+	for run, want := range []int{2, 2, 1} {
+		if st, err := f.Run(ctx, cos, name); err != nil || st.JobsNew != want {
+			t.Fatalf("run %d: %+v %v; want %d new", run+1, st, err, want)
+		}
+		swept, _ := store.LastFullFetch(ctx, f.Pool, companyID)
+		if drained := run == 2; swept.IsZero() == drained {
+			t.Errorf("run %d: recorded as a full sweep = %v, want %v", run+1, !swept.IsZero(), drained)
+		}
 	}
 }
 

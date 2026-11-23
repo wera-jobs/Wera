@@ -287,12 +287,16 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 	}
 	var fresh []sources.RawJob
 	var stillListed, allIDs []string
+	capped := false // new postings left for a later run
 	for _, j := range jobs {
 		allIDs = append(allIDs, j.ExtID)
-		if known[j.ExtID] {
+		switch {
+		case known[j.ExtID]:
 			stillListed = append(stillListed, j.ExtID)
-		} else if len(fresh) < limit {
+		case len(fresh) < limit:
 			fresh = append(fresh, j)
+		default:
+			capped = true
 		}
 	}
 
@@ -338,7 +342,10 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 		allIDs = nil // a partial listing must not close anything
 	}
 	seen, newly, err = f.saveCompanyJobs(ctx, src, companyID, detailed, allIDs, complete)
-	if err == nil && complete {
+	// A sweep that left new postings for later is not recorded: the next
+	// run's incremental listing stops at the first page it already knows,
+	// so the rest would wait for the next full sweep, 20 hours away.
+	if err == nil && complete && !capped {
 		if merr := store.MarkFullFetch(ctx, f.Pool, companyID); merr != nil {
 			f.Log.Warn("recording full sweep failed", "company", c.Name, "err", merr)
 		}
