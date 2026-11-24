@@ -220,7 +220,7 @@ services:
   # in .env says which one this is (see deploy/home).
   wera-tunnel:
     profiles: [public]
-    image: cloudflare/cloudflared:2026.11.0
+    image: cloudflare/cloudflared:2026.11.1
     container_name: wera-tunnel
     logging: *logging
     command: tunnel --no-autoupdate run
