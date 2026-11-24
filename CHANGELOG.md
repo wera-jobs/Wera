@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.5](https://github.com/wera-jobs/Wera/compare/wera-v0.35.4...wera-v0.35.5) (2026-11-24)
+
+
+### Bug Fixes
+
+* keep single line breaks in the cover letter PDF ([b0f6f68](https://github.com/wera-jobs/Wera/commit/b0f6f6819b09bec251a3a39f176f6a70d7f2340b))
+
 ## [0.35.4](https://github.com/wera-jobs/Wera/compare/wera-v0.35.3...wera-v0.35.4) (2026-11-23)
 
 
