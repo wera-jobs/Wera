@@ -331,6 +331,14 @@ func TestLetterPDF(t *testing.T) {
 				t.Errorf("letter text is missing %q:\n%s", want, txt)
 			}
 		}
+		// A single line break stays one: the sign-off and the name on their own lines.
+		lines := map[string]bool{}
+		for _, l := range strings.Split(string(out), "\n") {
+			lines[strings.TrimSpace(l)] = true
+		}
+		if !lines["Best,"] || !lines["Ada"] {
+			t.Errorf("sign-off ran into one line:\n%s", out)
+		}
 	}
 }
 

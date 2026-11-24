@@ -26,6 +26,8 @@
 ]
 #v(0.8em)
 
-#for p in d.body.split("\n\n").map(p => p.trim()).filter(present) [
-  #par(p.split("\n").join(" "))
+// Blank lines part paragraphs; a single line break stays one, as on screen
+// (a sign-off and the name under it).
+#for p in d.body.replace("\r\n", "\n").split("\n\n").map(p => p.trim()).filter(present) [
+  #par(p.split("\n").map(l => l.trim()).join(linebreak()))
 ]
