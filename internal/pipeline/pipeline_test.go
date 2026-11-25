@@ -703,6 +703,80 @@ func TestFactsPerRunCapsExtraction(t *testing.T) {
 	}
 }
 
+// TestInactiveUserSpendsNoFacts checks that a user unseen for weeks, with
+// no digest to fill, gets no facts extracted for their queue, and gets
+// them again once they are back.
+func TestInactiveUserSpendsNoFacts(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	env.FactsPerRun, env.InactiveAfterDays, env.InactiveScoresPerDay = 0, 7, 10
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Remote, US", Description: testutil.Unique("Keep Go services healthy.")},
+		testutil.Job{Title: "Platform Engineer", Location: "Remote, US", Description: testutil.Unique("Run Kubernetes.")},
+	)
+	u := testutil.User(t, pool, false)
+	p := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM analyses WHERE profile_hash = $1`, scoring.ScoreKey(p.ProfileHash))
+	})
+	if _, err := FilterUser(ctx, pool, testEngine(t), nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET last_seen_at = now() - interval '30 days' WHERE id = $1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ScoreUser(ctx, pool, env, log, p, 0, nil, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coral.facts.Load() != 0 || st.FactsExtracted != 0 || st.FactsDeferred != 2 {
+		t.Fatalf("inactive: facts calls %d, stats %+v; want none extracted, 2 deferred", coral.facts.Load(), st)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET last_seen_at = now() WHERE id = $1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = ScoreUser(ctx, pool, env, log, p, 0, nil, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if coral.facts.Load() != 2 || st.FactsDeferred != 0 {
+		t.Errorf("back again: facts calls %d, stats %+v; want both extracted", coral.facts.Load(), st)
+	}
+}
+
+func TestFactsLimit(t *testing.T) {
+	env := &config.Env{FactsPerRun: 300}
+	for _, c := range []struct {
+		n       int
+		why     string
+		want    int
+		limited bool
+	}{
+		{100, "daily limit", 300, true},
+		{-1, "", 300, true},
+		{0, noDigestToFill, 0, true},
+		{10, inactiveLimit, 30, true},
+		{0, inactiveLimit, 0, true},
+		{500, inactiveLimit, 300, true},
+	} {
+		if got, limited := factsLimit(env, c.n, c.why); got != c.want || limited != c.limited {
+			t.Errorf("factsLimit(%d, %q) = %d, %v; want %d, %v", c.n, c.why, got, limited, c.want, c.limited)
+		}
+	}
+	if _, limited := factsLimit(&config.Env{}, 100, "daily limit"); limited {
+		t.Error("FACTS_PER_RUN=0 should mean no limit for an active user")
+	}
+	if got, limited := factsLimit(&config.Env{}, 10, inactiveLimit); got != 30 || !limited {
+		t.Errorf("inactive with no FACTS_PER_RUN: %d %v", got, limited)
+	}
+}
+
 // TestRankingRewritesOnlyChangedEstimates checks that ranking the same
 // queue twice leaves the rows alone the second time: every write would
 // leave a dead row behind, for every pending job of every user, every run.
