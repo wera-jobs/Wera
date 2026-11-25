@@ -48,8 +48,9 @@ type Env struct {
 	ScoresPerRun         int // per scheduled run, after the first scores for a profile; 0 = no limit
 	InactiveAfterDays    int // users unseen this long get InactiveScoresPerDay
 	InactiveScoresPerDay int // enough for their digest; 0 when they get no digest
-	// FactsPerRun caps the postings one user's run extracts shared facts
-	// for (best ranked first); 0 = only the cost limits apply.
+	// FactsPerRun caps the postings an active user's run extracts shared
+	// facts for (best ranked first); 0 = only the cost limits apply. An
+	// inactive user's run extracts only what their digest scores need.
 	FactsPerRun int
 	// MatchConcurrency is how many users a run matches at once.
 	MatchConcurrency int

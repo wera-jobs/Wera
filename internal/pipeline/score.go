@@ -178,7 +178,7 @@ type ScoreStats struct {
 	Skipped          int // left pending: budget guard or call error
 	Reused           int // linked to an existing analysis, no LLM call
 	FactsExtracted   int // postings whose shared facts were extracted now
-	FactsDeferred    int // postings left without facts this run (FactsPerRun)
+	FactsDeferred    int // postings left without facts this run (see factsLimit)
 	ExcludedByFacts  int // excluded from shared facts, no per-user LLM call
 	Deferred         int // ranked below the user's score limit: estimate only for now
 	QuickGraded      int // given a quick grade (many jobs per call, no reason)
@@ -375,12 +375,20 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 			missing = append(missing, j)
 		}
 	}
+	// The user's score limit decides how far down their queue facts are
+	// worth extracting this run.
+	n, why := -1, ""
+	if len(onlyIDs) == 0 {
+		if n, why, err = ScoreLimit(ctx, pool, env, prof); err != nil {
+			return st, err
+		}
+	}
 	// Facts beyond what the user's scores and quick grades will reach this
 	// run are spent on postings far down their queue; later runs (or
 	// another user's) reach them if they rise.
-	if env.FactsPerRun > 0 && len(onlyIDs) == 0 && len(missing) > env.FactsPerRun {
-		st.FactsDeferred = len(missing) - env.FactsPerRun
-		missing = missing[:env.FactsPerRun]
+	if limit, limited := factsLimit(env, n, why); limited && len(onlyIDs) == 0 && len(missing) > limit {
+		st.FactsDeferred = len(missing) - limit
+		missing = missing[:limit]
 	}
 	factsBudget := maxCostUSD / 2
 	if len(onlyIDs) > 0 {
@@ -424,10 +432,6 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 	// within minutes, not only the jobs the daily limit lets through. They
 	// may use half of what the facts left.
 	if len(onlyIDs) == 0 && len(candidates) > 0 {
-		n, why, err := ScoreLimit(ctx, pool, env, prof)
-		if err != nil {
-			return st, err
-		}
 		if n != 0 || why != noDigestToFill {
 			budget := (maxCostUSD - extractor.Spent()) / 2
 			if st.QuickGraded, err = quickGrade(ctx, pool, env, log, prof, candidates, facts, budget, st, &mu); err != nil {
@@ -482,8 +486,36 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 }
 
 // noDigestToFill is ScoreLimit's reason for a user who gets no scores at
-// all: inactive, with no digest to fill.
-const noDigestToFill = "inactive, no digest to fill"
+// all: inactive, with no digest to fill; inactiveLimit for one who gets
+// only enough for their digest.
+const (
+	noDigestToFill = "inactive, no digest to fill"
+	inactiveLimit  = "inactive: digest-sized limit"
+)
+
+// inactiveFactsPerScore is how many postings' facts an inactive user's
+// run extracts for each score it may still give: enough to rule some out
+// and pick the best for the digest.
+const inactiveFactsPerScore = 3
+
+// factsLimit is how many postings without facts one run extracts them
+// for, and whether there is a limit at all. An active user's whole queue
+// is quick graded, so it gets FACTS_PER_RUN (0 is no limit). An inactive
+// user gets only what their digest-sized scores need (n left today), and
+// none without a digest: on 2026-11-25, runs of users unseen for weeks
+// extracted 82% of all facts ($4.25 of $5.21 a week), nearly all of them
+// never scored or graded.
+func factsLimit(env *config.Env, n int, why string) (int, bool) {
+	switch why {
+	case noDigestToFill, inactiveLimit:
+		c := inactiveFactsPerScore * max(n, 0)
+		if env.FactsPerRun > 0 {
+			c = min(c, env.FactsPerRun)
+		}
+		return c, true
+	}
+	return env.FactsPerRun, env.FactsPerRun > 0
+}
 
 // quickGrade gives quick grades to the candidates (in queue order) that
 // have facts and no grade for the current profile text, spending at most
@@ -564,7 +596,7 @@ func ScoreLimit(ctx context.Context, pool *pgxpool.Pool, env *config.Env, prof *
 	case inactive && (!env.Mail.Enabled() || !act.DigestRequested):
 		return 0, noDigestToFill, nil
 	case inactive:
-		daily, why = env.InactiveScoresPerDay, "inactive: digest-sized limit"
+		daily, why = env.InactiveScoresPerDay, inactiveLimit
 	case daily == 0 && env.ScoresPerRun == 0:
 		return -1, "", nil
 	}
