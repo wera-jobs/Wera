@@ -5,7 +5,6 @@
 
 ### Bug Fixes
 
-* extract facts only as far as an inactive user's scores reach ([b0abac7](https://github.com/wera-jobs/Wera/commit/b0abac78995c52923b187447e0d6bacb56d82eaa))
 * extract facts only as far as an inactive user's scores reach ([85ea6b0](https://github.com/wera-jobs/Wera/commit/85ea6b046f40cb1e94334f594f466dd505c64e18)), closes [#314](https://github.com/wera-jobs/Wera/issues/314)
 
 ## [0.36.0](https://github.com/wera-jobs/Wera/compare/wera-v0.35.5...wera-v0.36.0) (2026-11-25)
