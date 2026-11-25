@@ -468,6 +468,24 @@ func TestSettingsAndHiddenCompanies(t *testing.T) {
 		t.Fatalf("save: %d %s", code, body)
 	}
 
+	// The weekly application goal: 0 to 100, and kept when a client that
+	// doesn't know about it saves the other settings.
+	if code, _ := do(t, client, http.MethodPut, ts.URL+"/api/settings", `{"weekly_application_goal":101}`); code != 400 {
+		t.Errorf("goal 101: want 400, got %d", code)
+	}
+	if code, body := do(t, client, http.MethodPut, ts.URL+"/api/settings", `{"weekly_application_goal":7}`); code != 200 || !strings.Contains(body, `"weekly_application_goal":7`) || !strings.Contains(body, `"theme":"dark"`) {
+		t.Fatalf("save goal: %d %s", code, body)
+	}
+	if code, body := do(t, client, http.MethodPut, ts.URL+"/api/settings", `{"theme":"light","default_sort":"newest","notifications":{"frequency":"weekly","min_score":85}}`); code != 200 || !strings.Contains(body, `"weekly_application_goal":7`) || !strings.Contains(body, `"theme":"light"`) {
+		t.Errorf("goal lost by a save without it: %d %s", code, body)
+	}
+	if code, body := do(t, client, http.MethodGet, ts.URL+"/api/review/weekly", ""); code != 200 || !strings.Contains(body, `"weekly_goal":7`) || !strings.Contains(body, `"goal_streak_weeks":0`) {
+		t.Errorf("weekly review goal: %d %s", code, body)
+	}
+	if code, body := do(t, client, http.MethodGet, ts.URL+"/api/stats", ""); code != 200 || !strings.Contains(body, `"weekly_goal":7`) {
+		t.Errorf("stats goal: %d %s", code, body)
+	}
+
 	// Hiding a company removes its jobs from the user's lists.
 	var jobID, companyID int64
 	if err := pool.QueryRow(context.Background(), `

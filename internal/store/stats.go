@@ -198,6 +198,8 @@ type StatsView struct {
 	ByStatus         map[string]int64 `json:"by_status"`
 	NewPerDay        []DayCount       `json:"new_per_day"`
 	ApplicationsWeek int64            `json:"applications_per_week"`
+	WeeklyGoal       int              `json:"weekly_goal"`       // 0 is no goal
+	GoalStreakWeeks  int              `json:"goal_streak_weeks"` // see GoalStreak (weeks start Monday, UTC)
 }
 
 // DayCount is a per-day count series point.
@@ -307,6 +309,16 @@ func Stats(ctx context.Context, pool *pgxpool.Pool, userID int64, tz string) (*S
 		SELECT count(*) FROM applications
 		WHERE user_id = $1 AND applied_at >= now() - interval '7 days'
 		  AND status IN ('applied', 'interviewing', 'offer', 'rejected')`, userID).Scan(&out.ApplicationsWeek); err != nil {
+		return nil, err
+	}
+	settings, err := GetSettings(ctx, pool, userID)
+	if err != nil {
+		return nil, err
+	}
+	out.WeeklyGoal = settings.WeeklyApplicationGoal
+	now := time.Now().UTC()
+	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -((int(now.Weekday()) + 6) % 7))
+	if out.GoalStreakWeeks, err = GoalStreak(ctx, pool, userID, monday, out.WeeklyGoal); err != nil {
 		return nil, err
 	}
 	return out, nil
