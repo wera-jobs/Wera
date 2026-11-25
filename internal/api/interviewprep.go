@@ -1,10 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -127,25 +130,34 @@ func (s *Server) generateInterviewPrep(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, saved)
 }
 
-// practiceAnswer is POST /api/jobs/{id}/interview-prep/practice: feedback on
-// the user's practice answer to one question. Nothing is stored.
+// practiceAnswer is POST /api/jobs/{id}/interview-prep/practice: feedback
+// on the user's practice answer, with the follow-up an interviewer would
+// likely ask next. Answering question starts its thread over; answering
+// with follow_up set (the follow-up being answered) adds a turn, and the
+// thread's earlier turns go with the request. history, when given, is used
+// as the earlier turns instead. The thread is stored and returned.
 func (s *Server) practiceAnswer(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.pathID(w, r, "id", "job")
 	if !ok {
 		return
 	}
 	var body struct {
-		Question string `json:"question"`
-		Answer   string `json:"answer"`
+		Question string                 `json:"question"`
+		Answer   string                 `json:"answer"`
+		FollowUp string                 `json:"follow_up"`
+		History  []profile.PracticeTurn `json:"history"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
 		return
 	}
-	body.Question, body.Answer = strings.TrimSpace(body.Question), strings.TrimSpace(body.Answer)
+	body.Question, body.Answer, body.FollowUp = strings.TrimSpace(body.Question), strings.TrimSpace(body.Answer), strings.TrimSpace(body.FollowUp)
 	switch {
 	case body.Question == "" || len(body.Question) > 300:
 		s.writeError(w, http.StatusBadRequest, "the question is missing or too long")
+		return
+	case len(body.FollowUp) > 300:
+		s.writeError(w, http.StatusBadRequest, "the follow-up question is too long")
 		return
 	case len(strings.Fields(body.Answer)) < 10:
 		s.writeError(w, http.StatusBadRequest, "write a few sentences first; feedback needs at least 10 words")
@@ -153,6 +165,15 @@ func (s *Server) practiceAnswer(w http.ResponseWriter, r *http.Request) {
 	case len(body.Answer) > 4000:
 		s.writeError(w, http.StatusBadRequest, "the answer is too long (4,000 characters max)")
 		return
+	case len(body.History) > profile.MaxPracticeHistory:
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("send at most %d earlier turns", profile.MaxPracticeHistory))
+		return
+	}
+	for _, t := range body.History {
+		if len(t.Question) > 300 || len(t.Answer) > 4000 {
+			s.writeError(w, http.StatusBadRequest, "an earlier turn is too long")
+			return
+		}
 	}
 	user := currentUser(r)
 	if !s.practiceLimit.Allow(strconv.FormatInt(user.ID, 10)) {
@@ -163,16 +184,66 @@ func (s *Server) practiceAnswer(w http.ResponseWriter, r *http.Request) {
 	if in == nil {
 		return
 	}
-	reply, err := s.chatWithModel(r.Context(), user.ID, "interview_practice", s.Env.AI.Model, 1200, profile.PracticeMessages(*in, body.Question, body.Answer))
+	asked, history := body.Question, body.History
+	if body.FollowUp != "" {
+		asked = body.FollowUp
+		if len(history) == 0 {
+			thread, err := store.PracticeThreadFor(r.Context(), s.Pool, user.ID, id, body.Question)
+			if err != nil {
+				s.writeError(w, http.StatusInternalServerError, "query failed")
+				return
+			}
+			if thread != nil {
+				for _, t := range thread.Turns {
+					history = append(history, profile.PracticeTurn{Question: t.Question, Answer: t.Answer})
+				}
+			}
+		}
+	}
+	reply, err := s.chatWithModel(r.Context(), user.ID, "interview_practice", s.Env.AI.Model, 1200, profile.PracticeMessages(*in, asked, body.Answer, history))
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, "the AI service did not answer; try again")
 		return
 	}
-	// What the candidate said in the answer is theirs too.
-	f, err := profile.ParsePracticeFeedback(reply, own+"\n"+body.Answer)
+	// What the candidate said in this and earlier answers is theirs too.
+	said := []string{own, body.Answer}
+	for _, t := range history {
+		said = append(said, t.Answer)
+	}
+	f, err := profile.ParsePracticeFeedback(reply, strings.Join(said, "\n"))
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, "the AI returned unusable feedback; try again")
 		return
 	}
-	s.writeJSON(w, http.StatusOK, f)
+	fb, err := json.Marshal(f)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "could not save the practice")
+		return
+	}
+	thread, err := store.AddPracticeTurn(r.Context(), s.Pool, user.ID, id, body.Question,
+		store.PracticeTurn{Question: asked, Answer: body.Answer, Feedback: fb, At: time.Now().UTC()}, body.FollowUp == "")
+	if err != nil {
+		s.Log.Error("save practice failed", "err", err)
+		s.writeError(w, http.StatusInternalServerError, "could not save the practice")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, struct {
+		*profile.PracticeFeedback
+		Thread *store.PracticeThread `json:"thread"`
+	}{f, thread})
+}
+
+// listPractice is GET /api/jobs/{id}/interview-prep/practice: the user's
+// practice threads for the job, most recent first.
+func (s *Server) listPractice(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathID(w, r, "id", "job")
+	if !ok {
+		return
+	}
+	threads, err := store.PracticeThreads(r.Context(), s.Pool, currentUser(r).ID, id)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"threads": threads})
 }

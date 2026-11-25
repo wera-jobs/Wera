@@ -223,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/jobs/{id}/interview-prep", s.getInterviewPrep)
 			r.Post("/jobs/{id}/interview-prep", s.generateInterviewPrep)
 			r.Post("/jobs/{id}/interview-prep/practice", s.practiceAnswer)
+			r.Get("/jobs/{id}/interview-prep/practice", s.listPractice)
 
 			r.Get("/posts", s.listPosts)
 			r.Post("/posts", s.createPost)

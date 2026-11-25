@@ -189,10 +189,12 @@ func ParseInterviewPrep(reply, own string) (*InterviewPrep, error) {
 
 const practiceInstructions = `You coach a candidate's practice answer to one interview question for one specific job. ` + scoring.Untrusted + `
 
-Return ONLY a JSON object: {"strengths": [], "improve": [], "outline": []}
+Return ONLY a JSON object: {"strengths": [], "improve": [], "outline": [], "follow_up": ""}
 - strengths: up to 3 specific things the answer does well (quote or name them).
 - improve: up to 3 specific, actionable changes, most important first (structure such as situation, action and result; a concrete example; the result or what was learned; tying it to what the posting needs; length).
 - outline: 3 to 5 short steps for a stronger version of this answer, built only from what the candidate said and their own profile, resume and facts. Never invent experience, employers, numbers or results; where the answer needs something the candidate has not given, write the step as what to add, for example "Add the result: what changed after your fix".
+- follow_up: the one question this job's interviewer would most likely ask next, probing the vaguest or most important part of the answer. One short sentence ending in a question mark. Never assume facts the candidate has not given.
+- When earlier turns of this practice are given, the question is the interviewer's follow-up to them: judge the answer in that context, and don't repeat feedback the earlier answers already got.
 ` + FactsRule + `
 - Be direct and kind. Plain sentences, no markdown, and never em dashes or en dashes.`
 
@@ -201,13 +203,36 @@ type PracticeFeedback struct {
 	Strengths []string `json:"strengths"`
 	Improve   []string `json:"improve"`
 	Outline   []string `json:"outline"`
+	// FollowUp is the question the interviewer would likely ask next ("" when none).
+	FollowUp string `json:"follow_up"`
 }
 
+// PracticeTurn is an earlier question and answer in a practice thread.
+type PracticeTurn struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+// MaxPracticeHistory is how many earlier turns go with a practice request.
+const MaxPracticeHistory = 4
+
 // PracticeMessages builds the request for feedback on one practice answer.
-func PracticeMessages(in PrepInput, question, answer string) []scoring.Message {
-	user := candidateBlock(in.CandidateName, in.Profile, in.Resume, in.Details) + postingBlock(in.Company, in.Title, in.Location, in.Description) +
-		fmt.Sprintf("\n\nThe interview question:\n<content>\n%s\n</content>\n\nThe candidate's practice answer:\n<answers>\n%s\n</answers>",
-			scoring.Fence(trimRunes(question, 300)), scoring.Fence(trimRunes(answer, 4000)))
+// history holds the thread's earlier turns, oldest first (the last
+// MaxPracticeHistory are sent); question is then the follow-up being answered.
+func PracticeMessages(in PrepInput, question, answer string, history []PracticeTurn) []scoring.Message {
+	user := candidateBlock(in.CandidateName, in.Profile, in.Resume, in.Details) + postingBlock(in.Company, in.Title, in.Location, in.Description)
+	if len(history) > MaxPracticeHistory {
+		history = history[len(history)-MaxPracticeHistory:]
+	}
+	if len(history) > 0 {
+		user += "\n\nEarlier in this practice, oldest first:"
+		for i, t := range history {
+			user += fmt.Sprintf("\n\nQuestion %d:\n<content>\n%s\n</content>\nThe candidate's answer:\n<answers>\n%s\n</answers>",
+				i+1, scoring.Fence(trimRunes(t.Question, 300)), scoring.Fence(trimRunes(t.Answer, 4000)))
+		}
+	}
+	user += fmt.Sprintf("\n\nThe interview question:\n<content>\n%s\n</content>\n\nThe candidate's practice answer:\n<answers>\n%s\n</answers>",
+		scoring.Fence(trimRunes(question, 300)), scoring.Fence(trimRunes(answer, 4000)))
 	return []scoring.Message{
 		{Role: "system", Content: practiceInstructions},
 		{Role: "user", Content: user},
@@ -226,7 +251,12 @@ func ParsePracticeFeedback(reply, own string) (*PracticeFeedback, error) {
 	for _, n := range numbers(own) {
 		have[n] = true
 	}
-	out := PracticeFeedback{Strengths: cleanList(f.Strengths, 3, 300), Improve: cleanList(f.Improve, 3, 300), Outline: []string{}}
+	out := PracticeFeedback{Strengths: cleanList(f.Strengths, 3, 300), Improve: cleanList(f.Improve, 3, 300), Outline: []string{},
+		FollowUp: cleanLine(f.FollowUp, 300)}
+	// A follow-up that puts a number in the candidate's mouth is dropped.
+	if !grounded(out.FollowUp, have) {
+		out.FollowUp = ""
+	}
 	for _, s := range cleanList(f.Outline, 5, 300) {
 		if grounded(s, have) {
 			out.Outline = append(out.Outline, s)
