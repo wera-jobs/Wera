@@ -274,6 +274,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/ext/reports", s.addProblemReport)
 
 			r.Get("/resumes", s.listResumes)
+			r.Post("/resumes", s.createResume)
 			r.Post("/resumes/import", s.importResume)
 			r.Post("/resumes/preview", s.previewResume)
 			r.Get("/resumes/templates", s.resumeTemplates)
@@ -283,6 +284,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/resumes/suggest-bullet", s.suggestBullet)
 			r.Get("/resumes/{id}", s.getResumeHandler)
 			r.Put("/resumes/{id}", s.putResume)
+			r.Patch("/resumes/{id}", s.patchResume)
 			r.Delete("/resumes/{id}", s.deleteResumeHandler)
 			r.Post("/resumes/{id}/fit", s.fitResume)
 			r.Get("/resumes/{id}/pdf", s.resumePDF)
