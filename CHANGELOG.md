@@ -7,7 +7,6 @@
 
 * add a cached public feed of recently found jobs ([acf6e19](https://github.com/wera-jobs/Wera/commit/acf6e1902e0d5aa6d38562dbf23f281d8b1d9125)), closes [#305](https://github.com/wera-jobs/Wera/issues/305)
 * add a skill to the profile in one click and rescore the job ([951f537](https://github.com/wera-jobs/Wera/commit/951f537d2d8a98fd4e2a61767052f93377ed1441)), closes [#309](https://github.com/wera-jobs/Wera/issues/309)
-* backend batch for the dashboard and landing page ([#305](https://github.com/wera-jobs/Wera/issues/305)-[#313](https://github.com/wera-jobs/Wera/issues/313)) ([873bf63](https://github.com/wera-jobs/Wera/commit/873bf63f2b2fd7604da6ccdc2f39c97a70cf9ebf))
 * filter jobs and Today to followed companies ([bcc5179](https://github.com/wera-jobs/Wera/commit/bcc517908db4204da9e2a550f69e1ae95d9c0015)), closes [#311](https://github.com/wera-jobs/Wera/issues/311)
 * keep contacts per application ([0db2c17](https://github.com/wera-jobs/Wera/commit/0db2c17479942d6004a60e3ad42c72965c36fb5e)), closes [#307](https://github.com/wera-jobs/Wera/issues/307)
 * keep interview practice threads with follow-up questions ([2653486](https://github.com/wera-jobs/Wera/commit/26534861af4c2dcdc483b58c74ef694e26f2b2fa)), closes [#312](https://github.com/wera-jobs/Wera/issues/312)
