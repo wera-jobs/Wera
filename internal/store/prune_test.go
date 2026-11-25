@@ -16,15 +16,16 @@ func TestPrune(t *testing.T) {
 	companyID, _ := testutil.Company(t, pool, "other")
 	ids := testutil.Jobs(t, pool, companyID,
 		testutil.Job{Title: "Long Closed"}, testutil.Job{Title: "Long Closed, Tracked"},
-		testutil.Job{Title: "Closed A Month"}, testutil.Job{Title: "Open"})
-	longClosed, tracked, month, open := ids[0], ids[1], ids[2], ids[3]
+		testutil.Job{Title: "Closed A Month"}, testutil.Job{Title: "Open"}, testutil.Job{Title: "Long Closed, Contact"})
+	longClosed, tracked, month, open, contact := ids[0], ids[1], ids[2], ids[3], ids[4]
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, q, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	exec(`UPDATE jobs SET closed_at = now() - interval '100 days' WHERE id = ANY($1)`, []int64{longClosed, tracked})
+	exec(`UPDATE jobs SET closed_at = now() - interval '100 days' WHERE id = ANY($1)`, []int64{longClosed, tracked, contact})
+	exec(`INSERT INTO user_job_contacts (user_id, job_id, name) VALUES ($1, $2, 'Recruiter')`, user.ID, contact)
 	exec(`UPDATE jobs SET closed_at = now() - interval '40 days' WHERE id = $1`, month)
 	exec(`INSERT INTO applications (user_id, job_id, status, notes) VALUES ($1, $2, 'applied', '')`, user.ID, tracked)
 	model := testutil.Unique("prune-model")
@@ -60,7 +61,7 @@ func TestPrune(t *testing.T) {
 		return ok
 	}
 	job := `SELECT 1 FROM jobs WHERE id = $1`
-	if exists(job, longClosed) || !exists(job, tracked) || !exists(job, month) || !exists(job, open) {
+	if exists(job, longClosed) || !exists(job, tracked) || !exists(job, month) || !exists(job, open) || !exists(job, contact) {
 		t.Error("want only the long-closed, untracked posting deleted")
 	}
 	vec := `SELECT 1 FROM job_embeddings WHERE job_id = $1`
