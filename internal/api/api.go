@@ -98,6 +98,8 @@ type Server struct {
 	beaconLimit   *auth.Limiter
 	reportLimit   *auth.Limiter
 	addJobLimit   *auth.Limiter
+	// publicH1BLimit: signed-out H-1B lookups per IP (see public.go).
+	publicH1BLimit *auth.Limiter
 	// addSlots bounds how many added jobs are scored and checked in the
 	// background at once, so a burst of additions queues instead of fanning out.
 	addSlots chan struct{}
@@ -147,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	s.beaconLimit = auth.NewLimiter(600, time.Hour)
 	s.reportLimit = auth.NewLimiter(10, time.Hour)
 	s.addJobLimit = auth.NewLimiter(addJobsPerHour, time.Hour)
+	s.publicH1BLimit = auth.NewLimiter(publicH1BPerWindow, publicH1BWindow)
 	s.addSlots = make(chan struct{}, 4)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
@@ -159,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/auth/config", s.authConfig)
 		r.Get("/public/stats", s.publicStats)
 		r.Get("/public/recent-jobs", s.publicRecentJobs)
+		r.Get("/public/h1b/employers", s.publicH1BEmployers)
+		r.Get("/public/h1b/employer", s.publicH1BEmployer)
 		r.Get("/companies/{id}/logo", s.companyLogo)
 		r.Post("/page-seen", s.pageSeen)
 		r.Post("/auth/verify-email", s.verifyEmail)
