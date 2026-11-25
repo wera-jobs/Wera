@@ -87,7 +87,7 @@ func (s *Server) clearApplication(w http.ResponseWriter, r *http.Request) {
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	userID := currentUser(r).ID
-	jobs, pending, err := store.TodayJobs(r.Context(), s.Pool, userID, limit)
+	jobs, pending, err := store.TodayJobs(r.Context(), s.Pool, userID, limit, flag(r.URL.Query().Get("followed")))
 	if err != nil {
 		s.Log.Error("today failed", "err", err)
 		s.writeError(w, http.StatusInternalServerError, "query failed")

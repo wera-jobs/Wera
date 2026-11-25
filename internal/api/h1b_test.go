@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -109,5 +111,53 @@ func TestH1BEndpoints(t *testing.T) {
 	}
 	if code, _ = getBody(t, ts.URL+"/api/h1b/employer?key=nobody+at+all"); code != 404 {
 		t.Errorf("unknown employer: %d", code)
+	}
+
+	// Signed out: the search and a summary (no places), per IP limited.
+	anon := func(ip, path string) (int, string, http.Header) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		req.Header.Set("X-Real-IP", ip)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b), resp.Header
+	}
+	ip := "198.51.100.23"
+	if code, body, _ := anon(ip, "/api/h1b/employers?q="+url.QueryEscape(name)); code != 401 {
+		t.Errorf("signed-out search on the account route: %d %s", code, body)
+	}
+	code, body, _ = anon(ip, "/api/public/h1b/employers?q="+url.QueryEscape(name))
+	if code != 200 || !strings.Contains(body, found.Employers[0].Key) {
+		t.Fatalf("public search: %d %s", code, body)
+	}
+	code, body, header := anon(ip, "/api/public/h1b/employer?key="+url.QueryEscape(found.Employers[0].Key))
+	var sum PublicH1BSummary
+	json.Unmarshal([]byte(body), &sum)
+	if code != 200 || sum.Filings != 3 || sum.NewHires != 1 || sum.WageMedian == nil || *sum.WageMedian != 150000 ||
+		len(sum.Levels) != 3 || len(sum.Titles) != 3 || sum.Name != name+", Inc." || strings.Contains(body, "Seattle") {
+		t.Fatalf("public summary: %d %s", code, body)
+	}
+	if header.Get("Cache-Control") != "public, max-age=1800" {
+		t.Errorf("public summary cache header: %q", header.Get("Cache-Control"))
+	}
+	if code, _, _ := anon(ip, "/api/public/h1b/employer?key=nobody+at+all"); code != 404 {
+		t.Errorf("public unknown employer: %d", code)
+	}
+	// 3 lookups so far from this IP; the limit is per IP and counts cached answers.
+	for i := 3; i < publicH1BPerWindow; i++ {
+		if code, _, _ := anon(ip, "/api/public/h1b/employers?q="+url.QueryEscape(name)); code != 200 {
+			t.Fatalf("lookup %d: %d", i+1, code)
+		}
+	}
+	code, _, header = anon(ip, "/api/public/h1b/employer?key="+url.QueryEscape(found.Employers[0].Key))
+	if code != 429 || header.Get("Retry-After") == "" {
+		t.Errorf("over the limit: %d, Retry-After %q", code, header.Get("Retry-After"))
+	}
+	if code, _, _ := anon("198.51.100.24", "/api/public/h1b/employers?q="+url.QueryEscape(name)); code != 200 {
+		t.Errorf("another IP was limited: %d", code)
 	}
 }

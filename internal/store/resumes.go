@@ -25,6 +25,12 @@ type ResumeDoc struct {
 	Fit        *resume.FitResult `json:"fit"`
 	Notes      []string          `json:"notes"`
 	UpdatedAt  time.Time         `json:"updated_at"`
+	// IsDefault: the base resume tailoring, the extension and autofill use
+	// unless told otherwise (one per user).
+	IsDefault bool `json:"is_default"`
+	// BaseID is the base resume a tailored copy was made from (nil for
+	// base resumes, and for copies made before there were several).
+	BaseID *int64 `json:"base_id"`
 }
 
 // ResumeSummary is a resume in a list.
@@ -36,15 +42,17 @@ type ResumeSummary struct {
 	JobCompany *string   `json:"job_company"`
 	OnePage    *bool     `json:"one_page"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	IsDefault  bool      `json:"is_default"`
+	BaseID     *int64    `json:"base_id"`
 }
 
-const resumeCols = `r.id, r.title, r.job_id, j.title, c.name, r.data, r.layout, r.fit, r.notes, r.updated_at`
+const resumeCols = `r.id, r.title, r.job_id, j.title, c.name, r.data, r.layout, r.fit, r.notes, r.updated_at, r.is_default, r.base_id`
 const resumeFrom = ` FROM resumes r LEFT JOIN jobs j ON j.id = r.job_id LEFT JOIN companies c ON c.id = j.company_id `
 
 func scanResume(row pgx.Row) (*ResumeDoc, error) {
 	var d ResumeDoc
 	var data, layout, fit, notes []byte
-	if err := row.Scan(&d.ID, &d.Title, &d.JobID, &d.JobTitle, &d.JobCompany, &data, &layout, &fit, &notes, &d.UpdatedAt); err != nil {
+	if err := row.Scan(&d.ID, &d.Title, &d.JobID, &d.JobTitle, &d.JobCompany, &data, &layout, &fit, &notes, &d.UpdatedAt, &d.IsDefault, &d.BaseID); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(data, &d.Data); err != nil {
@@ -61,11 +69,11 @@ func scanResume(row pgx.Row) (*ResumeDoc, error) {
 	return &d, nil
 }
 
-// ListResumes lists the user's resumes: the base one first, then tailored
-// copies, newest first.
+// ListResumes lists the user's resumes: the default base first, the other
+// bases, then tailored copies, newest first.
 func ListResumes(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]ResumeSummary, error) {
-	rows, err := pool.Query(ctx, `SELECT r.id, r.title, r.job_id, j.title, c.name, (r.fit->>'one_page')::boolean, r.updated_at`+
-		resumeFrom+`WHERE r.user_id = $1 ORDER BY r.job_id IS NOT NULL, r.updated_at DESC`, userID)
+	rows, err := pool.Query(ctx, `SELECT r.id, r.title, r.job_id, j.title, c.name, (r.fit->>'one_page')::boolean, r.updated_at, r.is_default, r.base_id`+
+		resumeFrom+`WHERE r.user_id = $1 ORDER BY r.is_default DESC, r.job_id IS NOT NULL, r.updated_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +81,7 @@ func ListResumes(ctx context.Context, pool *pgxpool.Pool, userID int64) ([]Resum
 	out := []ResumeSummary{}
 	for rows.Next() {
 		var s ResumeSummary
-		if err := rows.Scan(&s.ID, &s.Title, &s.JobID, &s.JobTitle, &s.JobCompany, &s.OnePage, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &s.JobID, &s.JobTitle, &s.JobCompany, &s.OnePage, &s.UpdatedAt, &s.IsDefault, &s.BaseID); err != nil {
 			return nil, err
 		}
 		out = append(out, s)
@@ -86,9 +94,90 @@ func GetResume(ctx context.Context, pool *pgxpool.Pool, userID, id int64) (*Resu
 	return scanResume(pool.QueryRow(ctx, `SELECT `+resumeCols+resumeFrom+`WHERE r.user_id = $1 AND r.id = $2`, userID, id))
 }
 
-// BaseResume returns the user's base resume (pgx.ErrNoRows if none).
+// BaseResume returns the user's default base resume (pgx.ErrNoRows if none).
 func BaseResume(ctx context.Context, pool *pgxpool.Pool, userID int64) (*ResumeDoc, error) {
-	return scanResume(pool.QueryRow(ctx, `SELECT `+resumeCols+resumeFrom+`WHERE r.user_id = $1 AND r.job_id IS NULL`, userID))
+	return scanResume(pool.QueryRow(ctx, `SELECT `+resumeCols+resumeFrom+`WHERE r.user_id = $1 AND r.is_default`, userID))
+}
+
+// BaseResumeByID returns one of the user's base resumes (pgx.ErrNoRows
+// when it isn't theirs or is a tailored copy).
+func BaseResumeByID(ctx context.Context, pool *pgxpool.Pool, userID, id int64) (*ResumeDoc, error) {
+	return scanResume(pool.QueryRow(ctx, `SELECT `+resumeCols+resumeFrom+`WHERE r.user_id = $1 AND r.id = $2 AND r.job_id IS NULL`, userID, id))
+}
+
+// MaxBaseResumes bounds how many base resumes a user keeps.
+const MaxBaseResumes = 10
+
+// ErrTooManyResumes is returned when a user already has MaxBaseResumes.
+var ErrTooManyResumes = errors.New("you have the most base resumes Wera keeps; delete one first")
+
+// AddBaseResume stores a new base resume next to the user's others. The
+// first one becomes the default.
+func AddBaseResume(ctx context.Context, pool *pgxpool.Pool, userID int64, doc *ResumeDoc) (int64, error) {
+	data, err := json.Marshal(doc.Data)
+	if err != nil {
+		return 0, err
+	}
+	layout, _ := json.Marshal(doc.Layout.Clamp())
+	var fit []byte
+	if doc.Fit != nil {
+		fit, _ = json.Marshal(doc.Fit)
+	}
+	notes, _ := json.Marshal(doc.Notes)
+	if doc.Notes == nil {
+		notes = []byte("[]")
+	}
+	title := strings.TrimSpace(doc.Title)
+	if title == "" {
+		title = "Resume"
+	}
+	var id int64
+	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		// Two creates at once for one user wait for each other here.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('resumes'), $1::int)`, userID); err != nil {
+			return err
+		}
+		var n int
+		var hasDefault bool
+		if err := tx.QueryRow(ctx, `SELECT count(*), bool_or(is_default) IS TRUE FROM resumes WHERE user_id = $1 AND job_id IS NULL`, userID).Scan(&n, &hasDefault); err != nil {
+			return err
+		}
+		if n >= MaxBaseResumes {
+			return ErrTooManyResumes
+		}
+		return tx.QueryRow(ctx, `
+			INSERT INTO resumes (user_id, title, data, layout, fit, notes, is_default) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+			userID, title, data, layout, fit, notes, !hasDefault).Scan(&id)
+	})
+	return id, err
+}
+
+// SetDefaultResume makes one of the user's base resumes the default
+// (pgx.ErrNoRows when it isn't theirs or is a tailored copy).
+func SetDefaultResume(ctx context.Context, pool *pgxpool.Pool, userID, id int64) error {
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM resumes WHERE user_id = $1 AND id = $2 AND job_id IS NULL)`, userID, id).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return pgx.ErrNoRows
+		}
+		if _, err := tx.Exec(ctx, `UPDATE resumes SET is_default = false WHERE user_id = $1 AND is_default AND id <> $2`, userID, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE resumes SET is_default = true WHERE user_id = $1 AND id = $2`, userID, id)
+		return err
+	})
+}
+
+// RenameResume changes the title of one of the user's resumes.
+func RenameResume(ctx context.Context, pool *pgxpool.Pool, userID, id int64, title string) error {
+	tag, err := pool.Exec(ctx, `UPDATE resumes SET title = $3, updated_at = now() WHERE user_id = $1 AND id = $2`, userID, id, title)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = pgx.ErrNoRows
+	}
+	return err
 }
 
 // JobResume returns the user's resume tailored for a job (pgx.ErrNoRows if none).
@@ -96,7 +185,8 @@ func JobResume(ctx context.Context, pool *pgxpool.Pool, userID, jobID int64) (*R
 	return scanResume(pool.QueryRow(ctx, `SELECT `+resumeCols+resumeFrom+`WHERE r.user_id = $1 AND r.job_id = $2`, userID, jobID))
 }
 
-// ErrResumeExists is returned when creating a second base resume.
+// ErrResumeExists is returned when SaveResume would create a second
+// default base resume (an import when the user has one).
 var ErrResumeExists = errors.New("you already have a resume")
 
 // SaveResume inserts (doc.ID == 0) or updates one of the user's resumes;
@@ -133,32 +223,36 @@ func SaveResume(ctx context.Context, pool *pgxpool.Pool, userID int64, doc *Resu
 	var id int64
 	if doc.JobID != nil {
 		err = pool.QueryRow(ctx, `
-			INSERT INTO resumes (user_id, job_id, title, data, layout, fit, notes) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO resumes (user_id, job_id, title, data, layout, fit, notes, base_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (user_id, job_id) WHERE job_id IS NOT NULL
 			DO UPDATE SET title = EXCLUDED.title, data = EXCLUDED.data, layout = EXCLUDED.layout, fit = EXCLUDED.fit,
-			              notes = EXCLUDED.notes, updated_at = now()
-			RETURNING id`, userID, *doc.JobID, title, data, layout, fit, notes).Scan(&id)
+			              notes = EXCLUDED.notes, base_id = EXCLUDED.base_id, updated_at = now()
+			RETURNING id`, userID, *doc.JobID, title, data, layout, fit, notes, doc.BaseID).Scan(&id)
 		return id, err
 	}
 	err = pool.QueryRow(ctx, `
-		INSERT INTO resumes (user_id, title, data, layout, fit, notes) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (user_id) WHERE job_id IS NULL DO NOTHING RETURNING id`, userID, title, data, layout, fit, notes).Scan(&id)
+		INSERT INTO resumes (user_id, title, data, layout, fit, notes, is_default) VALUES ($1, $2, $3, $4, $5, $6, true)
+		ON CONFLICT (user_id) WHERE is_default DO NOTHING RETURNING id`, userID, title, data, layout, fit, notes).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrResumeExists
 	}
 	return id, err
 }
 
-// DeleteResume removes one of the user's resumes.
+// DeleteResume removes one of the user's resumes. When it was the default,
+// the most recently edited of their other base resumes takes its place.
 func DeleteResume(ctx context.Context, pool *pgxpool.Pool, userID, id int64) error {
-	tag, err := pool.Exec(ctx, `DELETE FROM resumes WHERE user_id = $1 AND id = $2`, userID, id)
-	if err != nil {
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var wasDefault bool
+		err := tx.QueryRow(ctx, `DELETE FROM resumes WHERE user_id = $1 AND id = $2 RETURNING is_default`, userID, id).Scan(&wasDefault)
+		if err != nil || !wasDefault {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE resumes SET is_default = true WHERE id = (
+			  SELECT id FROM resumes WHERE user_id = $1 AND job_id IS NULL ORDER BY updated_at DESC, id DESC LIMIT 1)`, userID)
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-	return nil
+	})
 }
 
 // JobKeywords is what a posting asks for: the skills extracted into its

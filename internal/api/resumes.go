@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -598,8 +599,11 @@ func (s *Server) tailorJobResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An optional steer from the user; an empty body is fine.
+	// base_resume_id picks which base resume to start from (the default
+	// when left out).
 	var in struct {
-		Request string `json:"request"`
+		Request      string `json:"request"`
+		BaseResumeID int64  `json:"base_resume_id"`
 	}
 	if err := decodeJSON(r, &in); err != nil && !errors.Is(err, io.EOF) {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
@@ -610,7 +614,17 @@ func (s *Server) tailorJobResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := currentUser(r)
-	base, err := store.BaseResume(r.Context(), s.Pool, user.ID)
+	var base *store.ResumeDoc
+	var err error
+	if in.BaseResumeID != 0 {
+		base, err = store.BaseResumeByID(r.Context(), s.Pool, user.ID, in.BaseResumeID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.writeError(w, http.StatusNotFound, "base resume not found")
+			return
+		}
+	} else {
+		base, err = store.BaseResume(r.Context(), s.Pool, user.ID)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		s.writeError(w, http.StatusBadRequest, "create your resume first (Resume page)")
 		return
@@ -648,7 +662,7 @@ func (s *Server) tailorJobResume(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	doc := &store.ResumeDoc{Title: fmt.Sprintf("%s, %s", title, company), JobID: &id, Data: *tailored.Resume, Layout: base.Layout, Notes: tailored.Notes}
+	doc := &store.ResumeDoc{Title: fmt.Sprintf("%s, %s", title, company), JobID: &id, Data: *tailored.Resume, Layout: base.Layout, Notes: tailored.Notes, BaseID: &base.ID}
 	if s.Resumes.Available() {
 		if res, err := s.Resumes.Fit(r.Context(), &doc.Data, doc.Layout, tailored.Priority(kws)); err == nil {
 			doc.Layout, doc.Fit = res.Layout, res
@@ -769,4 +783,109 @@ func (s *Server) coverLetterPDF(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, file))
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; object-src 'self'; frame-ancestors 'self'")
 	_, _ = w.Write(pdf)
+}
+
+// maxResumeTitle bounds a resume's name, in characters.
+const maxResumeTitle = 120
+
+// createResume is POST /api/resumes {title, from_id?}: another base resume,
+// a copy of from_id (any of the user's resumes, a tailored one included)
+// or a starter. The user's first base resume becomes the default.
+func (s *Server) createResume(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Title  string `json:"title"`
+		FromID int64  `json:"from_id"`
+	}
+	if err := decodeJSON(r, &in); err != nil && !errors.Is(err, io.EOF) {
+		s.writeError(w, http.StatusBadRequest, "bad JSON body")
+		return
+	}
+	in.Title = strings.TrimSpace(in.Title)
+	if utf8.RuneCountInString(in.Title) > maxResumeTitle {
+		s.writeError(w, http.StatusBadRequest, "that name is too long")
+		return
+	}
+	user := currentUser(r)
+	doc := &store.ResumeDoc{Title: in.Title, Data: *starterResume(user), Layout: resume.DefaultLayout}
+	if in.FromID != 0 {
+		from, err := store.GetResume(r.Context(), s.Pool, user.ID, in.FromID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			s.writeError(w, http.StatusNotFound, "resume not found")
+			return
+		} else if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		doc.Data, doc.Layout, doc.Fit = from.Data, from.Layout, from.Fit
+		if doc.Title == "" {
+			doc.Title = from.Title + " (copy)"
+		}
+	}
+	if doc.Title == "" {
+		doc.Title = "My resume"
+	}
+	id, err := store.AddBaseResume(r.Context(), s.Pool, user.ID, doc)
+	if errors.Is(err, store.ErrTooManyResumes) {
+		s.writeError(w, http.StatusConflict, err.Error())
+		return
+	} else if err != nil {
+		s.Log.Error("create resume failed", "err", err)
+		s.writeError(w, http.StatusInternalServerError, "could not save the resume")
+		return
+	}
+	saved, ok := s.reread(w, r, user.ID, id)
+	if !ok {
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, s.view(r, saved))
+}
+
+// patchResume is PATCH /api/resumes/{id} {title?, is_default?}: rename a
+// resume, or make a base resume the default (to stop being the default,
+// make another one the default).
+func (s *Server) patchResume(w http.ResponseWriter, r *http.Request) {
+	doc, ok := s.resumeParam(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Title     *string `json:"title"`
+		IsDefault *bool   `json:"is_default"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		s.writeError(w, http.StatusBadRequest, "bad JSON body")
+		return
+	}
+	user := currentUser(r)
+	if in.Title != nil {
+		t := strings.TrimSpace(*in.Title)
+		if t == "" || utf8.RuneCountInString(t) > maxResumeTitle {
+			s.writeError(w, http.StatusBadRequest, "give the resume a name of up to 120 characters")
+			return
+		}
+		if err := store.RenameResume(r.Context(), s.Pool, user.ID, doc.ID, t); err != nil {
+			s.writeError(w, http.StatusInternalServerError, "save failed")
+			return
+		}
+	}
+	if in.IsDefault != nil {
+		switch {
+		case doc.JobID != nil:
+			s.writeError(w, http.StatusBadRequest, "only a base resume can be the default")
+			return
+		case !*in.IsDefault && doc.IsDefault:
+			s.writeError(w, http.StatusBadRequest, "make another resume the default instead")
+			return
+		case *in.IsDefault:
+			if err := store.SetDefaultResume(r.Context(), s.Pool, user.ID, doc.ID); err != nil {
+				s.writeError(w, http.StatusInternalServerError, "save failed")
+				return
+			}
+		}
+	}
+	saved, ok := s.reread(w, r, user.ID, doc.ID)
+	if !ok {
+		return
+	}
+	s.writeJSON(w, http.StatusOK, s.view(r, saved))
 }

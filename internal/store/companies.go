@@ -258,3 +258,89 @@ func MarkFullFetch(ctx context.Context, pool *pgxpool.Pool, companyID int64) err
 	_, err := pool.Exec(ctx, `UPDATE companies SET last_full_fetch_at = now() WHERE id = $1`, companyID)
 	return err
 }
+
+// RecentJob is a posting on the public landing page's feed.
+type RecentJob struct {
+	ID          int64     `json:"id"`
+	Title       string    `json:"title"`
+	CompanyID   int64     `json:"company_id"`
+	Company     string    `json:"company"`
+	Industry    string    `json:"industry"`
+	LogoURL     string    `json:"logo_url,omitempty"`
+	Location    string    `json:"location"`
+	WorkMode    string    `json:"work_mode"` // remote | hybrid | onsite | unknown
+	PayMin      *float64  `json:"pay_min"`
+	PayMax      *float64  `json:"pay_max"`
+	PayCurrency *string   `json:"pay_currency"`
+	PayPeriod   *string   `json:"pay_period"`  // hour | year
+	Sponsorship string    `json:"sponsorship"` // yes | no | unknown, as the posting says
+	H1BFiler    bool      `json:"h1b_filer"`   // the employer files H-1B petitions
+	Source      string    `json:"source"`      // the job board (ATS)
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	logoAt      *time.Time
+}
+
+// RecentJobs returns up to limit open postings Wera found in the last three
+// days, at most one per company, the newest of each, spread across
+// industries in turn. Companies with a logo go first. Postings whose facts
+// say they can't be done in the U.S. are left out.
+func RecentJobs(ctx context.Context, pool *pgxpool.Pool, limit int) ([]RecentJob, error) {
+	rows, err := pool.Query(ctx, `
+		WITH recent AS (
+		  SELECT DISTINCT ON (j.company_id) j.id, j.company_id, j.title, j.location_raw, j.is_remote, j.source,
+		         j.first_seen_at, j.content_hash, j.pay_min::float8 AS pay_min, j.pay_max::float8 AS pay_max, j.pay_currency, j.pay_period
+		  FROM jobs j
+		  WHERE j.closed_at IS NULL AND j.source <> 'manual' AND j.first_seen_at > now() - interval '3 days'
+		  ORDER BY j.company_id, j.first_seen_at DESC, j.id DESC
+		)
+		SELECT r.id, r.title, r.company_id, c.name, c.industry, l.checked_at,
+		       coalesce(nullif(f.facts->>'location_summary', ''), r.location_raw, ''),
+		       coalesce(nullif(f.facts->>'work_mode', ''), CASE WHEN r.is_remote THEN 'remote' ELSE 'unknown' END),
+		       r.pay_min, r.pay_max, r.pay_currency, r.pay_period,
+		       coalesce(nullif(f.facts->>'sponsorship', ''), 'unknown'),
+		       EXISTS (SELECT 1 FROM company_h1b_employers m WHERE m.company_id = r.company_id),
+		       r.source, r.first_seen_at
+		FROM recent r JOIN companies c ON c.id = r.company_id AND c.enabled
+		LEFT JOIN company_logos l ON l.company_id = r.company_id AND l.found
+		LEFT JOIN job_facts f ON f.job_id = r.id AND f.content_hash = r.content_hash
+		WHERE f.facts IS NULL OR f.facts->>'us_eligible' IS DISTINCT FROM 'false'
+		ORDER BY (l.checked_at IS NOT NULL) DESC, r.first_seen_at DESC, r.id DESC
+		LIMIT 400`)
+	if err != nil {
+		return nil, fmt.Errorf("recent jobs: %w", err)
+	}
+	defer rows.Close()
+	byIndustry := map[string][]RecentJob{}
+	var industries []string // in order of each one's newest posting
+	for rows.Next() {
+		var j RecentJob
+		if err := rows.Scan(&j.ID, &j.Title, &j.CompanyID, &j.Company, &j.Industry, &j.logoAt, &j.Location, &j.WorkMode,
+			&j.PayMin, &j.PayMax, &j.PayCurrency, &j.PayPeriod, &j.Sponsorship, &j.H1BFiler, &j.Source, &j.FirstSeenAt); err != nil {
+			return nil, err
+		}
+		if j.logoAt != nil {
+			j.LogoURL = LogoURL(j.CompanyID, *j.logoAt)
+		}
+		if _, ok := byIndustry[j.Industry]; !ok {
+			industries = append(industries, j.Industry)
+		}
+		byIndustry[j.Industry] = append(byIndustry[j.Industry], j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := []RecentJob{}
+	for round := 0; len(out) < limit; round++ {
+		added := false
+		for _, ind := range industries {
+			if list := byIndustry[ind]; round < len(list) && len(out) < limit {
+				out = append(out, list[round])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out, nil
+}
