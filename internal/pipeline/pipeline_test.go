@@ -194,7 +194,7 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if stage, _ := stageOf(t, pool, u1.ID, good); stage != "scored" {
 		t.Errorf("good job: %s", stage)
 	}
-	jobs, _, err := store.TodayJobs(ctx, pool, u1.ID, 50)
+	jobs, _, err := store.TodayJobs(ctx, pool, u1.ID, 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestQuickGradesRankTheWholeQueue(t *testing.T) {
 			t.Errorf("job %d: estimate %v, quick grade %v; want the grade, about %d", id, est, grade, mid.Score(-1))
 		}
 	}
-	jobs, _, err := store.TodayJobs(ctx, pool, u.ID, 50)
+	jobs, _, err := store.TodayJobs(ctx, pool, u.ID, 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func TestPrefilterDuringSetup(t *testing.T) {
 
 func todayScore(t *testing.T, pool *pgxpool.Pool, userID, jobID int64) int {
 	t.Helper()
-	jobs, _, err := store.TodayJobs(context.Background(), pool, userID, 50)
+	jobs, _, err := store.TodayJobs(context.Background(), pool, userID, 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}

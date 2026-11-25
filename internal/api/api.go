@@ -349,6 +349,9 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	})
 }
 
+// flag reads a boolean query parameter: "1" or "true".
+func flag(v string) bool { return v == "1" || v == "true" }
+
 // writeJSON renders v as JSON.
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -389,7 +392,8 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		Sponsorship:  q.Get("sponsorship"),
 		WorkMode:     q.Get("work_mode"),
 		Status:       q.Get("status"),
-		Archived:     q.Get("archived") == "1" || q.Get("archived") == "true",
+		Archived:     flag(q.Get("archived")),
+		Followed:     flag(q.Get("followed")),
 		Q:            q.Get("q"),
 		Since:        since,
 		PostedWithin: max(0, postedWithin),

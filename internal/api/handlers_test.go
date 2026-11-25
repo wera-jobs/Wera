@@ -17,6 +17,7 @@ import (
 
 	"wera/internal/metrics"
 	"wera/internal/store"
+	"wera/internal/testutil"
 )
 
 func TestPutApplicationPersists(t *testing.T) {
@@ -662,5 +663,58 @@ func TestStatsPerDayInUserTimeZone(t *testing.T) {
 		if len(st.NewPerDay) > 14 {
 			t.Errorf("%s: %d days, want at most 14", tz, len(st.NewPerDay))
 		}
+	}
+}
+
+func TestFollowedFilter(t *testing.T) {
+	ts, pool := testServer(t, nil)
+	ctx := context.Background()
+	// A second company whose job is also a match; the user follows only the first.
+	otherID, _ := testutil.Company(t, pool, "other")
+	other := testutil.Jobs(t, pool, otherID, testutil.Job{Title: "Unfollowed Role"})
+	if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage) VALUES ($1, $2, 'h', 'scored')`, testUserID, other[0]); err != nil {
+		t.Fatal(err)
+	}
+	var followed int64
+	if err := pool.QueryRow(ctx, `SELECT company_id FROM jobs WHERE id = $1`, testJobIDs[0]).Scan(&followed); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := do(t, client, http.MethodPut, fmt.Sprintf("%s/api/companies/%d/follow", ts.URL, followed), ""); code != 204 {
+		t.Fatalf("follow: %d", code)
+	}
+	type list struct {
+		Jobs []store.JobView `json:"jobs"`
+	}
+	read := func(path string) list {
+		t.Helper()
+		code, body := do(t, client, http.MethodGet, ts.URL+path, "")
+		var l list
+		if code != 200 || json.Unmarshal([]byte(body), &l) != nil {
+			t.Fatalf("%s: %d %s", path, code, body)
+		}
+		return l
+	}
+	all := read("/api/jobs?limit=200")
+	if len(all.Jobs) != 4 {
+		t.Fatalf("all jobs: %d, want 4", len(all.Jobs))
+	}
+	for _, j := range all.Jobs {
+		if j.CompanyFollowed != (j.CompanyID == followed) {
+			t.Errorf("job %d company_followed = %v", j.ID, j.CompanyFollowed)
+		}
+	}
+	for _, path := range []string{"/api/jobs?followed=1", "/api/today?followed=1"} {
+		got := read(path)
+		if len(got.Jobs) != 3 {
+			t.Errorf("%s: %d jobs, want the 3 at the followed company", path, len(got.Jobs))
+		}
+		for _, j := range got.Jobs {
+			if j.CompanyID != followed || !j.CompanyFollowed {
+				t.Errorf("%s listed job %d of company %d", path, j.ID, j.CompanyID)
+			}
+		}
+	}
+	if code, body := do(t, client, http.MethodGet, jobURL(ts, testJobIDs[0], ""), ""); code != 200 || !strings.Contains(body, `"company_followed":true`) {
+		t.Errorf("detail: %d %s", code, body)
 	}
 }

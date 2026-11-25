@@ -16,10 +16,15 @@ import (
 // regardless of when they were first seen. While fewer than limit are
 // scored (a new user's first minutes), the rest of the list is filled with
 // the best unscored matches by relevance estimate; pending is how many
-// matches still wait for a score.
-func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int) (jobs []JobView, pending int, err error) {
+// matches still wait for a score. followed keeps only companies the user
+// follows (pending still counts every match).
+func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int, followed bool) (jobs []JobView, pending int, err error) {
 	limit = normalizeLimit(limit, 100, 200)
-	scored, err := queryJobViews(ctx, pool, jobViewSelect+`
+	only := ""
+	if followed {
+		only = "\n\t  AND " + followedOnly
+	}
+	scored, err := queryJobViews(ctx, pool, jobViewSelect+only+`
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
 	  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
@@ -35,10 +40,10 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int)
 		return nil, 0, err
 	}
 	if room := min(limit, 30) - len(scored); room > 0 && pending > 0 {
-		estimated, err := queryJobViews(ctx, pool, jobViewSelect+`
+		estimated, err := queryJobViews(ctx, pool, jobViewSelect+only+`
 		  AND j.closed_at IS NULL
 		  AND uj.stage = 'pending_score'
-		  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL AND ap.archived_at IS NULL
+		  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
 		ORDER BY `+queueOrder+`, j.first_seen_at DESC
 		LIMIT $2`, userID, room)
 		if err != nil {
