@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"net/http"
+
+	"wera/internal/store"
 )
 
 // PublicStats are the headline numbers for the landing page.
@@ -29,6 +31,25 @@ func (s *Server) publicStats(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.Log.Error("public stats failed", "err", err)
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=600")
+	s.writeJSON(w, http.StatusOK, v)
+}
+
+// recentJobsShown is how many postings the landing page's feed lists.
+const recentJobsShown = 20
+
+// publicRecentJobs is GET /api/public/recent-jobs (no sign-in): postings
+// Wera found in the last few days, one per company, across industries.
+func (s *Server) publicRecentJobs(w http.ResponseWriter, r *http.Request) {
+	v, err := s.sponsorCache.get("public-recent-jobs", func() (any, error) {
+		jobs, err := store.RecentJobs(context.WithoutCancel(r.Context()), s.Pool, recentJobsShown)
+		return map[string]any{"jobs": jobs}, err
+	})
+	if err != nil {
+		s.Log.Error("public recent jobs failed", "err", err)
 		s.writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
