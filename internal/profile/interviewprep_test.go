@@ -99,9 +99,16 @@ func TestPrepMessagesFenceAndScrub(t *testing.T) {
 
 func TestParsePracticeFeedback(t *testing.T) {
 	f, err := ParsePracticeFeedback(`{"strengths": ["Named the Power BI report"], "improve": ["Say what changed — the result"],
-"outline": ["Set the scene at Calderwick", "Say you cut close time by 3 days", "End with what the CFO did with it"]}`, prepOwn+" I built the report.")
+"outline": ["Set the scene at Calderwick", "Say you cut close time by 3 days", "End with what the CFO did with it"],
+"follow_up": "  What did the **CFO** change after seeing the report?  "}`, prepOwn+" I built the report.")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if f.FollowUp != "What did the CFO change after seeing the report?" {
+		t.Errorf("follow-up: %q", f.FollowUp)
+	}
+	if g, _ := ParsePracticeFeedback(`{"strengths": ["Clear"], "follow_up": "How did you save 9 days?"}`, prepOwn); g == nil || g.FollowUp != "" {
+		t.Errorf("a follow-up with an invented number was kept: %+v", g)
 	}
 	if strings.Contains(f.Improve[0], "—") {
 		t.Errorf("em dash survived: %q", f.Improve[0])
@@ -111,5 +118,20 @@ func TestParsePracticeFeedback(t *testing.T) {
 	}
 	if _, err := ParsePracticeFeedback(`{"strengths": [], "improve": [], "outline": []}`, prepOwn); err == nil {
 		t.Error("empty feedback accepted")
+	}
+}
+
+func TestPracticeMessagesHistory(t *testing.T) {
+	in := PrepInput{CandidateName: "Ada", Profile: "p", Company: "Acme", Title: "Analyst"}
+	if u := PracticeMessages(in, "Why us?", "Because of the product.", nil)[1].Content; strings.Contains(u, "Earlier in this practice") {
+		t.Errorf("history block without history: %s", u)
+	}
+	history := make([]PracticeTurn, 0, 6)
+	for i := range 6 {
+		history = append(history, PracticeTurn{Question: fmt.Sprintf("Q%d?", i), Answer: fmt.Sprintf("A%d", i)})
+	}
+	u := PracticeMessages(in, "And then?", "We shipped it.", history)[1].Content
+	if strings.Contains(u, "Q1?") || !strings.Contains(u, "Q2?") || !strings.Contains(u, "A5") || strings.Index(u, "A5") > strings.Index(u, "And then?") {
+		t.Errorf("want the last %d turns, oldest first, before the question: %s", MaxPracticeHistory, u)
 	}
 }

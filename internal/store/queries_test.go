@@ -107,7 +107,7 @@ func TestTodayPrefersFreshPostings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	jobs, _, err := store.TodayJobs(ctx, pool, user.ID, 10)
+	jobs, _, err := store.TodayJobs(ctx, pool, user.ID, 10, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,6 +23,11 @@ type WeeklyReview struct {
 	Gaps        []ReviewGap  `json:"gaps"`         // skills missing in jobs that went nowhere (last 4 weeks)
 	GapsOf      int          `json:"gaps_of"`      // how many such jobs
 	MinScore    int          `json:"min_score"`    // the user's strong-match score
+	WeeklyGoal  int          `json:"weekly_goal"`  // applications a week the user aims for; 0 is no goal
+	// GoalStreakWeeks counts the weeks in a row, up to this one, that met
+	// the goal. A week still in progress that hasn't met it yet doesn't
+	// break the streak: it just isn't counted.
+	GoalStreakWeeks int `json:"goal_streak_weeks"`
 }
 
 // ReviewItem is a job in the review.
@@ -88,8 +93,14 @@ func GetWeeklyReview(ctx context.Context, pool *pgxpool.Pool, userID int64, mond
 		ORDER BY j.id, ch.at DESC`, userID, monday, end); err != nil {
 		return nil, fmt.Errorf("review replies: %w", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT coalesce((settings->'notifications'->>'min_score')::int, 80) FROM users WHERE id = $1`, userID).Scan(&r.MinScore); err != nil {
+	settings, err := GetSettings(ctx, pool, userID)
+	if err != nil {
 		return nil, fmt.Errorf("review settings: %w", err)
+	}
+	r.MinScore = settings.Notifications.MinScore
+	r.WeeklyGoal = settings.WeeklyApplicationGoal
+	if r.GoalStreakWeeks, err = GoalStreak(ctx, pool, userID, monday, r.WeeklyGoal); err != nil {
+		return nil, err
 	}
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE ap.status IS NOT NULL)
@@ -153,4 +164,50 @@ func GetWeeklyReview(ctx context.Context, pool *pgxpool.Pool, userID int64, mond
 		}
 	}
 	return r, rows.Err()
+}
+
+// maxStreakWeeks bounds how far back a goal streak is counted.
+const maxStreakWeeks = 104
+
+// GoalStreak counts the weeks in a row, ending with the week that starts
+// on monday (UTC), in which the user sent at least goal applications. When
+// that week hasn't reached the goal yet, the streak is the run of weeks
+// before it, so it isn't shown as broken until the week is over. A goal of
+// 0 has no streak.
+func GoalStreak(ctx context.Context, pool *pgxpool.Pool, userID int64, monday time.Time, goal int) (int, error) {
+	if goal <= 0 {
+		return 0, nil
+	}
+	end := monday.AddDate(0, 0, 7)
+	rows, err := pool.Query(ctx, `
+		SELECT date_trunc('week', s.at AT TIME ZONE 'UTC'), count(*)
+		FROM (SELECT job_id, min(at) AS at FROM application_changes
+		      WHERE user_id = $1 AND status IN ('applied', 'interviewing', 'offer', 'rejected') GROUP BY job_id) s
+		WHERE s.at >= $2 AND s.at < $3
+		GROUP BY 1`, userID, monday.AddDate(0, 0, -7*maxStreakWeeks), end)
+	if err != nil {
+		return 0, fmt.Errorf("goal streak: %w", err)
+	}
+	defer rows.Close()
+	sent := map[time.Time]int{}
+	for rows.Next() {
+		var week time.Time
+		var n int
+		if err := rows.Scan(&week, &n); err != nil {
+			return 0, err
+		}
+		sent[time.Date(week.Year(), week.Month(), week.Day(), 0, 0, 0, 0, time.UTC)] = n
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	streak := 0
+	week := monday
+	if sent[week] < goal {
+		week = week.AddDate(0, 0, -7)
+	}
+	for ; streak < maxStreakWeeks && sent[week] >= goal; week = week.AddDate(0, 0, -7) {
+		streak++
+	}
+	return streak, nil
 }

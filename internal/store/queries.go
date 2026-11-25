@@ -24,6 +24,7 @@ type JobQuery struct {
 	Since        time.Time
 	PostedWithin int    // days; 0 = any age (see listedAt)
 	Sort         string // "score" (default) | "newest"
+	Followed     bool   // only companies the user follows
 	Limit        int
 	Offset       int
 }
@@ -95,8 +96,10 @@ type JobView struct {
 	// Early: the posting went up in the last three days and Wera found it
 	// within a day of that, so applying now puts the user among the first.
 	// Never claimed for a posting with no date.
-	Early   bool    `json:"early"`
-	ratings *string // the ratings object as the model wrote it, parsed by finish
+	Early bool `json:"early"`
+	// CompanyFollowed: the user follows the company (their new roles show up as a notice).
+	CompanyFollowed bool    `json:"company_followed"`
+	ratings         *string // the ratings object as the model wrote it, parsed by finish
 }
 
 // FitParts are a scored job's parts of fit, each 0-10, and whether
@@ -179,7 +182,8 @@ const jobViewSelect = `
 	       (SELECT l.checked_at FROM company_logos l WHERE l.company_id = j.company_id AND l.found),
 	       ap.resume_kind, ap.letter_sent,
 	       (SELECT r.resume_kind || '|' || coalesce(r.resume_name, '') || '|' || r.letter FROM autofill_runs r
-	        WHERE r.user_id = uj.user_id AND r.job_id = j.id AND r.resume_kind IS NOT NULL ORDER BY r.updated_at DESC LIMIT 1)
+	        WHERE r.user_id = uj.user_id AND r.job_id = j.id AND r.resume_kind IS NOT NULL ORDER BY r.updated_at DESC LIMIT 1),
+	       EXISTS (SELECT 1 FROM company_follows f WHERE f.user_id = uj.user_id AND f.company_id = j.company_id)
 	FROM user_jobs uj
 	JOIN jobs j ON j.id = uj.job_id
 	JOIN companies c ON c.id = j.company_id
@@ -199,7 +203,7 @@ func jobViewScan(v *JobView) []any {
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
 		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
-		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt, &v.apResume, &v.apLetter, &v.runFiles}
+		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt, &v.apResume, &v.apLetter, &v.runFiles, &v.CompanyFollowed}
 }
 
 // normalizeLimit clamps a page size for API queries.
@@ -212,6 +216,10 @@ func normalizeLimit(limit, def, ceiling int) int {
 	}
 	return limit
 }
+
+// followedOnly keeps a row of jobs j (for user uj) when the user follows
+// its company; the follows primary key (user_id, company_id) answers it.
+const followedOnly = "EXISTS (SELECT 1 FROM company_follows f WHERE f.user_id = uj.user_id AND f.company_id = j.company_id)"
 
 // listedAt is when a posting went up: the date its job board gives, or
 // when Wera first saw it, whichever is earlier. A company Wera starts
@@ -302,6 +310,10 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	if !q.Since.IsZero() {
 		args = append(args, q.Since)
 		where = append(where, fmt.Sprintf("j.first_seen_at >= $%d", len(args)))
+	}
+
+	if q.Followed {
+		where = append(where, followedOnly)
 	}
 
 	if q.PostedWithin > 0 {

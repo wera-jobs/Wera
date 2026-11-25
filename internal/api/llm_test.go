@@ -49,7 +49,7 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		qs = append(qs, `{"question":"How did you cut incidents?","kind":"behavioral","why":"Reliability.","points":["Cut incidents by 73% in a quarter"],"prepare":""}`)
 		content = `{"role":"Keep services healthy.","they_value":["Go","on-call"],"intro":"I work on site reliability.","questions":[` + strings.Join(qs, ",") + `],"ask":["How is on-call shared?"]}`
 	case strings.HasPrefix(system, "You coach a candidate's practice answer"):
-		content = `{"strengths":["You named a real incident"],"improve":["Say what changed after the fix"],"outline":["Set the scene","Say what you did","Cut pages by 73%"]}`
+		content = `{"strengths":["You named a real incident"],"improve":["Say what changed after the fix"],"outline":["Set the scene","Say what you did","Cut pages by 73%"],"follow_up":"What changed after the rollback?"}`
 	case strings.HasPrefix(system, "You write a cover letter") && f.short.Load():
 		content = "Dear Hiring Team, hire me."
 	case strings.HasPrefix(system, "You write a cover letter"):
@@ -402,5 +402,84 @@ func TestInterviewPrep(t *testing.T) {
 	}
 	if strings.Contains(body, "73%") {
 		t.Error("an outline step with an invented number reached the user")
+	}
+	type practiceReply struct {
+		FollowUp string               `json:"follow_up"`
+		Thread   store.PracticeThread `json:"thread"`
+	}
+	var first practiceReply
+	if json.Unmarshal([]byte(body), &first) != nil || first.FollowUp != "What changed after the rollback?" || len(first.Thread.Turns) != 1 {
+		t.Fatalf("first turn: %s", body)
+	}
+
+	// Answering the follow-up sends the earlier turn and adds to the thread.
+	code, body = do(t, client, http.MethodPost, practice, `{"question":"Tell me about an incident.","follow_up":"What changed after the rollback?","answer":"We added a canary stage to the deploy pipeline so a bad release stops before it reaches every customer."}`)
+	var second practiceReply
+	if code != 200 || json.Unmarshal([]byte(body), &second) != nil || len(second.Thread.Turns) != 2 ||
+		second.Thread.Turns[1].Question != "What changed after the rollback?" || second.Thread.Question != "Tell me about an incident." {
+		t.Fatalf("follow-up turn: %d %s", code, body)
+	}
+	if u, _ := llm.lastUser.Load().(string); !strings.Contains(u, "Earlier in this practice") || !strings.Contains(u, "rolled back the deploy") ||
+		!strings.Contains(u, "What changed after the rollback?") {
+		t.Errorf("the follow-up request lacks the earlier turn: %s", u)
+	}
+	// Reopening the job reloads it.
+	code, body = do(t, client, http.MethodGet, practice, "")
+	var list struct {
+		Threads []store.PracticeThread `json:"threads"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &list) != nil || len(list.Threads) != 1 || len(list.Threads[0].Turns) != 2 ||
+		!strings.Contains(string(list.Threads[0].Turns[0].Feedback), "You named a real incident") {
+		t.Fatalf("stored threads: %d %s", code, body)
+	}
+	// History the client sends is used instead, and capped.
+	tooMany := `[` + strings.TrimSuffix(strings.Repeat(`{"question":"Q?","answer":"A."},`, 5), ",") + `]`
+	if code, _ := do(t, client, http.MethodPost, practice, `{"question":"Tell me about an incident.","follow_up":"And then?","history":`+tooMany+`,"answer":"Then we wrote a runbook so the next person on call knows the steps."}`); code != 400 {
+		t.Errorf("five earlier turns: want 400, got %d", code)
+	}
+	// Answering the main question again starts the thread over.
+	code, body = do(t, client, http.MethodPost, practice, `{"question":"tell me about an  incident.","answer":"Our checkout service went down at night and I was on call, so I rolled back the deploy and wrote the postmortem."}`)
+	var again practiceReply
+	if code != 200 || json.Unmarshal([]byte(body), &again) != nil || len(again.Thread.Turns) != 1 {
+		t.Fatalf("starting over: %d %s", code, body)
+	}
+	if u, _ := llm.lastUser.Load().(string); strings.Contains(u, "Earlier in this practice") {
+		t.Error("a fresh answer to the main question was sent with history")
+	}
+	// Another user's GET sees nothing of it.
+	other := testutil.User(t, testPool(t), false)
+	if threads, err := store.PracticeThreads(context.Background(), testPool(t), other.ID, testJobIDs[0]); err != nil || len(threads) != 0 {
+		t.Errorf("other user's threads: %v %v", threads, err)
+	}
+}
+
+func TestPracticeThreadLimits(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	user := testutil.User(t, pool, false)
+	companyID, _ := testutil.Company(t, pool, "other")
+	job := testutil.Jobs(t, pool, companyID, testutil.Job{Title: "Practice Limits"})[0]
+	for i := range store.MaxPracticeTurns + 2 {
+		if _, err := store.AddPracticeTurn(ctx, pool, user.ID, job, "Why us?", store.PracticeTurn{Question: fmt.Sprintf("turn %d", i), Answer: "a", Feedback: []byte(`{}`)}, i == 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	th, err := store.PracticeThreadFor(ctx, pool, user.ID, job, "  WHY us? ")
+	if err != nil || th == nil || len(th.Turns) != store.MaxPracticeTurns || th.Turns[0].Question != "turn 2" {
+		t.Fatalf("turns kept: %+v %v", th, err)
+	}
+	for i := range store.MaxPracticeThreads + 1 {
+		if _, err := store.AddPracticeTurn(ctx, pool, user.ID, job, fmt.Sprintf("Question %d?", i), store.PracticeTurn{Question: "q", Answer: "a", Feedback: []byte(`{}`)}, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	threads, err := store.PracticeThreads(ctx, pool, user.ID, job)
+	if err != nil || len(threads) != store.MaxPracticeThreads {
+		t.Fatalf("threads kept: %d %v", len(threads), err)
+	}
+	for _, th := range threads {
+		if th.Question == "Why us?" {
+			t.Error("the oldest thread was kept past the limit")
+		}
 	}
 }

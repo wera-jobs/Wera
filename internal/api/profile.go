@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jackc/pgx/v5"
 
 	"wera/internal/config"
 	"wera/internal/normalize"
@@ -386,4 +389,83 @@ func (s *Server) suggestPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, sug)
+}
+
+// addProfileSkill is POST /api/profile/skills {skill, job_id?}: "I have
+// this skill". The skill goes on the profile's Skills section (the rest of
+// the text is kept as it is); a skill the section already names changes
+// nothing. Like any profile edit, a change has the user's jobs scored
+// again, and with job_id that job is scored now and returned, so its
+// matched and missing skills and its fit show the change.
+func (s *Server) addProfileSkill(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Skill string `json:"skill"`
+		JobID int64  `json:"job_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeError(w, http.StatusBadRequest, "bad JSON body")
+		return
+	}
+	skill, err := profile.CleanSkill(body.Skill)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	user := currentUser(r)
+	if !s.skillLimit.Allow(strconv.FormatInt(user.ID, 10)) {
+		s.writeError(w, http.StatusTooManyRequests, "too many skills added this hour; edit the profile instead")
+		return
+	}
+	prof, err := store.GetProfile(r.Context(), s.Pool, user.ID)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if prof == nil || prof.Markdown == "" {
+		s.writeError(w, http.StatusBadRequest, "finish your profile first")
+		return
+	}
+	if body.JobID != 0 {
+		if _, err := store.GetJob(r.Context(), s.Pool, user.ID, body.JobID); errors.Is(err, pgx.ErrNoRows) {
+			s.writeError(w, http.StatusNotFound, "job not found")
+			return
+		} else if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+	}
+	markdown, added := profile.AddSkill(prof.Markdown, skill)
+	if added {
+		if len(markdown) > profile.MaxProfileChars {
+			s.writeError(w, http.StatusBadRequest, "the profile is full (12,000 characters max); edit it to make room")
+			return
+		}
+		if err := store.SaveProfile(r.Context(), s.Pool, user.ID, markdown, scoring.ProfileHash([]byte(markdown)), prof.Preferences, prof.Answers); err != nil {
+			s.Log.Error("add skill failed", "err", err)
+			s.writeError(w, http.StatusInternalServerError, "could not save the profile")
+			return
+		}
+	}
+	out := map[string]any{"skill": skill, "added": added, "markdown": markdown, "job": nil}
+	if body.JobID != 0 {
+		if added && s.ScoreNow != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+			if err := s.ScoreNow(ctx, user.ID, body.JobID); err != nil {
+				s.Log.Warn("rescoring after a skill failed", "user_id", user.ID, "job_id", body.JobID, "err", err)
+			}
+			cancel()
+		}
+		job, err := store.GetJob(r.Context(), s.Pool, user.ID, body.JobID)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "query failed")
+			return
+		}
+		out["job"] = job
+	}
+	// The rest of the user's jobs are scored again in the background, after
+	// the one asked for (the match takes the same per-user lock).
+	if added && s.MatchUser != nil {
+		s.background("match user", func() { s.MatchUser(context.Background(), user.ID) })
+	}
+	s.writeJSON(w, http.StatusOK, out)
 }

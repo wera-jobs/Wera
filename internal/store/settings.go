@@ -15,6 +15,9 @@ type Settings struct {
 	Theme         string        `json:"theme"`        // system | light | dark
 	DefaultSort   string        `json:"default_sort"` // score | newest
 	Notifications Notifications `json:"notifications"`
+	// WeeklyApplicationGoal is how many applications a week the user aims
+	// for; 0 means no goal.
+	WeeklyApplicationGoal int `json:"weekly_application_goal"`
 }
 
 // Notifications are a user's alert preferences.
@@ -45,6 +48,8 @@ func (s *Settings) Validate() error {
 		return fmt.Errorf("notification frequency must be daily or weekly")
 	case s.Notifications.MinScore < 50 || s.Notifications.MinScore > 100:
 		return fmt.Errorf("alert threshold must be between 50 and 100")
+	case s.WeeklyApplicationGoal < 0 || s.WeeklyApplicationGoal > 100:
+		return fmt.Errorf("weekly application goal must be between 0 and 100")
 	}
 	return nil
 }

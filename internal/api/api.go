@@ -98,6 +98,9 @@ type Server struct {
 	beaconLimit   *auth.Limiter
 	reportLimit   *auth.Limiter
 	addJobLimit   *auth.Limiter
+	// publicH1BLimit: signed-out H-1B lookups per IP (see public.go).
+	publicH1BLimit *auth.Limiter
+	skillLimit     *auth.Limiter
 	// addSlots bounds how many added jobs are scored and checked in the
 	// background at once, so a burst of additions queues instead of fanning out.
 	addSlots chan struct{}
@@ -147,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	s.beaconLimit = auth.NewLimiter(600, time.Hour)
 	s.reportLimit = auth.NewLimiter(10, time.Hour)
 	s.addJobLimit = auth.NewLimiter(addJobsPerHour, time.Hour)
+	s.publicH1BLimit = auth.NewLimiter(publicH1BPerWindow, publicH1BWindow)
+	s.skillLimit = auth.NewLimiter(30, time.Hour)
 	s.addSlots = make(chan struct{}, 4)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
@@ -158,6 +163,9 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/auth/logout", s.logout)
 		r.Get("/auth/config", s.authConfig)
 		r.Get("/public/stats", s.publicStats)
+		r.Get("/public/recent-jobs", s.publicRecentJobs)
+		r.Get("/public/h1b/employers", s.publicH1BEmployers)
+		r.Get("/public/h1b/employer", s.publicH1BEmployer)
 		r.Get("/companies/{id}/logo", s.companyLogo)
 		r.Post("/page-seen", s.pageSeen)
 		r.Post("/auth/verify-email", s.verifyEmail)
@@ -189,6 +197,15 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/jobs/{id}/events", s.listJobEvents)
 			r.Post("/jobs/{id}/events", s.addEvent)
 			r.Delete("/jobs/{id}/events/{eid}", s.deleteEvent)
+			r.Get("/jobs/{id}/contacts", s.listJobContacts)
+			r.Post("/jobs/{id}/contacts", s.addJobContact)
+			r.Patch("/jobs/{id}/contacts/{cid}", s.patchJobContact)
+			r.Delete("/jobs/{id}/contacts/{cid}", s.deleteJobContact)
+			r.Get("/contacts", s.allContacts)
+			r.Get("/jobs/{id}/offer", s.getOffer)
+			r.Put("/jobs/{id}/offer", s.putOffer)
+			r.Delete("/jobs/{id}/offer", s.deleteOffer)
+			r.Get("/offers", s.listOffers)
 			r.Get("/events", s.upcomingEvents)
 			r.Get("/notifications", s.listNotifications)
 			r.Post("/notifications/read", s.readNotifications)
@@ -208,6 +225,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/jobs/{id}/interview-prep", s.getInterviewPrep)
 			r.Post("/jobs/{id}/interview-prep", s.generateInterviewPrep)
 			r.Post("/jobs/{id}/interview-prep/practice", s.practiceAnswer)
+			r.Get("/jobs/{id}/interview-prep/practice", s.listPractice)
 
 			r.Get("/posts", s.listPosts)
 			r.Post("/posts", s.createPost)
@@ -256,6 +274,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/ext/reports", s.addProblemReport)
 
 			r.Get("/resumes", s.listResumes)
+			r.Post("/resumes", s.createResume)
 			r.Post("/resumes/import", s.importResume)
 			r.Post("/resumes/preview", s.previewResume)
 			r.Get("/resumes/templates", s.resumeTemplates)
@@ -265,6 +284,7 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/resumes/suggest-bullet", s.suggestBullet)
 			r.Get("/resumes/{id}", s.getResumeHandler)
 			r.Put("/resumes/{id}", s.putResume)
+			r.Patch("/resumes/{id}", s.patchResume)
 			r.Delete("/resumes/{id}", s.deleteResumeHandler)
 			r.Post("/resumes/{id}/fit", s.fitResume)
 			r.Get("/resumes/{id}/pdf", s.resumePDF)
@@ -286,6 +306,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/profile", s.getProfile)
 			r.Put("/profile", s.putProfile)
 			r.Put("/profile/preferences", s.putPreferences)
+			r.Post("/profile/skills", s.addProfileSkill)
 			r.Post("/profile/resume", s.uploadResume)
 			r.Post("/profile/draft", s.draftProfile)
 			r.Post("/profile/suggest", s.suggestPreferences)
@@ -349,6 +370,9 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	})
 }
 
+// flag reads a boolean query parameter: "1" or "true".
+func flag(v string) bool { return v == "1" || v == "true" }
+
 // writeJSON renders v as JSON.
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -389,7 +413,8 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		Sponsorship:  q.Get("sponsorship"),
 		WorkMode:     q.Get("work_mode"),
 		Status:       q.Get("status"),
-		Archived:     q.Get("archived") == "1" || q.Get("archived") == "true",
+		Archived:     flag(q.Get("archived")),
+		Followed:     flag(q.Get("followed")),
 		Q:            q.Get("q"),
 		Since:        since,
 		PostedWithin: max(0, postedWithin),

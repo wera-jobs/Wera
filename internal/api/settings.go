@@ -28,9 +28,14 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, settingsView{Settings: st, HiddenCompanies: hidden})
 }
 
-// putSettings is PUT /api/settings.
+// putSettings is PUT /api/settings. Keys left out of the body keep their
+// stored values, so a client that doesn't know a newer setting can't reset it.
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
-	var st store.Settings
+	st, err := store.GetSettings(r.Context(), s.Pool, currentUser(r).ID)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	if err := decodeJSON(r, &st); err != nil {
 		s.writeError(w, http.StatusBadRequest, "bad JSON body")
 		return
