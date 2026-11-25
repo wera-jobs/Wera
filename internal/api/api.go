@@ -100,6 +100,7 @@ type Server struct {
 	addJobLimit   *auth.Limiter
 	// publicH1BLimit: signed-out H-1B lookups per IP (see public.go).
 	publicH1BLimit *auth.Limiter
+	skillLimit     *auth.Limiter
 	// addSlots bounds how many added jobs are scored and checked in the
 	// background at once, so a burst of additions queues instead of fanning out.
 	addSlots chan struct{}
@@ -150,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	s.reportLimit = auth.NewLimiter(10, time.Hour)
 	s.addJobLimit = auth.NewLimiter(addJobsPerHour, time.Hour)
 	s.publicH1BLimit = auth.NewLimiter(publicH1BPerWindow, publicH1BWindow)
+	s.skillLimit = auth.NewLimiter(30, time.Hour)
 	s.addSlots = make(chan struct{}, 4)
 	s.h1bCache = newTTLCache(time.Hour, 5000)
 	s.sponsorCache = newTTLCache(10*time.Minute, 200)
@@ -302,6 +304,7 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/profile", s.getProfile)
 			r.Put("/profile", s.putProfile)
 			r.Put("/profile/preferences", s.putPreferences)
+			r.Post("/profile/skills", s.addProfileSkill)
 			r.Post("/profile/resume", s.uploadResume)
 			r.Post("/profile/draft", s.draftProfile)
 			r.Post("/profile/suggest", s.suggestPreferences)
