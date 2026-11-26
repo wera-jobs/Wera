@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/wera-jobs/Wera?sort=semver&display_name=tag)](https://github.com/wera-jobs/Wera/releases)
 [![Go](https://img.shields.io/github/go-mod/go-version/wera-jobs/Wera?logo=go)](go.mod)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
-[![License](https://img.shields.io/github/license/wera-jobs/Wera)](LICENSE)
+[![License: proprietary](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
 **Wera** (Swahili slang for a job or gig) is the backend for [wera-jobs.com](https://www.wera-jobs.com). It pulls postings from public job-board APIs for 5,100+ companies across 30 industries, filters and ranks them per user, scores the best against each resume with an OpenAI-compatible LLM, and serves the REST API. Wera never applies on your behalf.
 
@@ -172,3 +172,7 @@ docs/                 Diagrams and design notes
 Go 1.27, chi, pgx, PostgreSQL 16, goose, Typst, Snowflake Arctic Embed M v1.5 (TEI), Prometheus, Docker Compose, GitHub Actions, release-please.
 
 See [PLAN.md](PLAN.md) for the original design and [wera-jobs/.github](https://github.com/wera-jobs/.github) for shared community files.
+
+## License
+
+Copyright (c) 2026 Wera. All rights reserved. This code is proprietary: it is visible here, but that grants no right to use, copy, modify or distribute it (see [LICENSE](LICENSE)). The Wera name and logo are trademarks of Wera. Third-party modules keep their own licenses, listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); regenerate it with `scripts/third-party-notices.sh` after changing dependencies.

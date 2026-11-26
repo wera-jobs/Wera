@@ -20,6 +20,7 @@ RUN apk add --no-cache poppler-utils typst ca-certificates tzdata \
 WORKDIR /app
 COPY --from=build /out/wera /app/wera
 COPY --from=build /src/config /app/config
+COPY --from=build /src/LICENSE /src/THIRD_PARTY_NOTICES.md /app/
 ENV HTTP_ADDR=:8080
 USER nonroot
 EXPOSE 8080
