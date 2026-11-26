@@ -125,7 +125,53 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 	if partial != nil {
 		return jobs, fmt.Errorf("%w: %w", sources.ErrPartialList, partial)
 	}
+	if first.Count > maxListed {
+		return jobs, fmt.Errorf("%w: %d of %d postings", sources.ErrTruncatedList, len(jobs), first.Count)
+	}
 	return jobs, nil
+}
+
+// ListNew implements sources.IncrementalLister. Eightfold lists newest
+// first (a pinned posting or two may sit on top), so paging stops after
+// the first page with no unknown posting: a quiet board costs one request
+// instead of one per ten postings.
+func (a *Adapter) ListNew(ctx context.Context, token string, known map[string]bool) ([]sources.RawJob, bool, error) {
+	base, domain, err := a.parse(token)
+	if err != nil {
+		return nil, false, err
+	}
+	var jobs []sources.RawJob
+	seen := map[int64]bool{}
+	for start := 0; start < maxListed; start += pageSize {
+		var resp listResponse
+		endpoint := fmt.Sprintf("%s/api/apply/v2/jobs?domain=%s&start=%d&num=%d",
+			base, url.QueryEscape(domain), start, pageSize)
+		if err := a.http.GetJSON(ctx, endpoint, &resp); err != nil {
+			if len(jobs) > 0 && !errors.Is(err, sources.ErrUnavailable) {
+				return jobs, false, nil // keep what was listed
+			}
+			return nil, false, err
+		}
+		unknown := 0
+		for _, p := range resp.Positions {
+			if p.ID == 0 || seen[p.ID] {
+				continue
+			}
+			seen[p.ID] = true
+			r := toRaw(p)
+			if !known[r.ExtID] {
+				unknown++
+			}
+			jobs = append(jobs, r)
+		}
+		if len(resp.Positions) < pageSize || start+pageSize >= resp.Count {
+			return jobs, true, nil // reached the end of the board
+		}
+		if unknown == 0 {
+			return jobs, false, nil
+		}
+	}
+	return jobs, false, nil
 }
 
 func toRaw(p position) sources.RawJob {

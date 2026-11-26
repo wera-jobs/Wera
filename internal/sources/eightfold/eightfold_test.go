@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"wera/internal/sources"
@@ -91,5 +92,55 @@ func TestListReportsAFailedPage(t *testing.T) {
 	jobs, err := NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL).List(context.Background(), "jobs.acme.com/acme.com")
 	if !errors.Is(err, sources.ErrPartialList) || len(jobs) != 13 {
 		t.Fatalf("got %d jobs, %v; want the 13 from the pages that worked and ErrPartialList", len(jobs), err)
+	}
+}
+
+// pagedBoard serves count positions, newest first, and counts requests.
+func pagedBoard(t *testing.T, count int, requests *atomic.Int32) *Adapter {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		var items []string
+		for id := start + 1; id <= min(start+pageSize, count); id++ {
+			items = append(items, fmt.Sprintf(`{"id":%d,"name":"Engineer %d"}`, id, id))
+		}
+		fmt.Fprintf(w, `{"count":%d,"positions":[%s]}`, count, join(items))
+	}))
+	t.Cleanup(srv.Close)
+	return NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL)
+}
+
+func TestListNewStopsAtKnownPostings(t *testing.T) {
+	known := map[string]bool{}
+	for id := 4; id <= 45; id++ {
+		known[strconv.Itoa(id)] = true // only 1-3 are new
+	}
+	var requests atomic.Int32
+	jobs, complete, err := pagedBoard(t, 45, &requests).ListNew(context.Background(), "jobs.acme.com/acme.com", known)
+	if err != nil || complete || requests.Load() != 2 || len(jobs) != 20 {
+		t.Fatalf("got %d jobs, complete=%v, %d requests, %v; want 20 jobs from 2 pages, incomplete", len(jobs), complete, requests.Load(), err)
+	}
+
+	for id := 1; id <= 3; id++ {
+		known[strconv.Itoa(id)] = true
+	}
+	requests.Store(0)
+	if _, complete, err := pagedBoard(t, 45, &requests).ListNew(context.Background(), "jobs.acme.com/acme.com", known); err != nil || complete || requests.Load() != 1 {
+		t.Fatalf("quiet board: complete=%v, %d requests, %v; want one request", complete, requests.Load(), err)
+	}
+
+	requests.Store(0)
+	jobs, complete, err = pagedBoard(t, 45, &requests).ListNew(context.Background(), "jobs.acme.com/acme.com", map[string]bool{})
+	if err != nil || !complete || requests.Load() != 5 || len(jobs) != 45 {
+		t.Fatalf("all new: got %d jobs, complete=%v, %d requests, %v; want the whole board", len(jobs), complete, requests.Load(), err)
+	}
+}
+
+func TestListReportsATruncatedBoard(t *testing.T) {
+	var requests atomic.Int32
+	jobs, err := pagedBoard(t, maxListed+25, &requests).List(context.Background(), "jobs.acme.com/acme.com")
+	if !errors.Is(err, sources.ErrTruncatedList) || len(jobs) != maxListed {
+		t.Fatalf("got %d jobs, %v; want %d and ErrTruncatedList", len(jobs), err, maxListed)
 	}
 }
