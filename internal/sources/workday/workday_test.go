@@ -195,3 +195,27 @@ func TestListReportsAFailedPage(t *testing.T) {
 		t.Fatalf("whole board: %d jobs, %v", len(jobs), err)
 	}
 }
+
+// A board larger than a full sweep lists comes back truncated: the
+// sweep reads past the incremental cap, then flags the rest so nothing
+// is closed for being missing.
+func TestListReportsATruncatedBoard(t *testing.T) {
+	const total = maxSwept + 300
+	old := throttle
+	throttle = sources.NewThrottle(4, 0) // a hundred pages at the real pace take 15 s
+	t.Cleanup(func() { throttle = old })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req searchRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		var items []string
+		for id := req.Offset + 1; id <= min(req.Offset+req.Limit, total); id++ {
+			items = append(items, fmt.Sprintf(`{"title":"Job %d","externalPath":"/job/%d"}`, id, id))
+		}
+		fmt.Fprintf(w, `{"total":%d,"jobPostings":[%s]}`, total, strings.Join(items, ","))
+	}))
+	t.Cleanup(srv.Close)
+	jobs, err := NewWithBaseURL(sources.NewHTTP("Wera/test"), srv.URL).List(context.Background(), "acme.wd5/Careers")
+	if !errors.Is(err, sources.ErrTruncatedList) || errors.Is(err, sources.ErrPartialList) || len(jobs) != maxSwept {
+		t.Fatalf("got %d jobs, %v; want %d and ErrTruncatedList", len(jobs), err, maxSwept)
+	}
+}

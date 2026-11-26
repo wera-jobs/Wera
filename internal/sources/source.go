@@ -61,6 +61,12 @@ type DetailSource interface {
 // ones it is missing.
 var ErrPartialList = errors.New("partial listing")
 
+// ErrTruncatedList is returned (wrapped, alongside the postings it did
+// get) by a List that read every page it asks for, but the board holds
+// more postings than it lists. The sweep counts as done, but postings it
+// did not list may still be open, so none are closed for being missing.
+var ErrTruncatedList = errors.New("truncated listing")
+
 // IncrementalLister is a DetailSource that can stop listing early: its
 // board is ordered newest first, so ListNew pages until a page holds no
 // posting in known and reports complete=false when it stopped before the

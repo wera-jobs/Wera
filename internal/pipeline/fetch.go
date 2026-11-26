@@ -256,6 +256,7 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 	// a full sweep (which detects closed postings) runs once a day.
 	var jobs []sources.RawJob
 	complete := true
+	closeMissing := true // false after a sweep that could not see the whole board
 	il, incremental := src.(sources.IncrementalLister)
 	if incremental {
 		last, lerr := store.LastFullFetch(ctx, f.Pool, companyID)
@@ -273,6 +274,12 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 			// pages missing, and sweep again next run.
 			f.Log.Warn("full sweep missed pages; not closing postings", "company", c.Name, "listed", len(jobs), "err", err)
 			complete, err = false, nil
+		}
+		if errors.Is(err, sources.ErrTruncatedList) {
+			// The newest postings were all listed; older ones past the
+			// cap may still be open, so close nothing.
+			f.Log.Info("board larger than a sweep lists; not closing postings", "company", c.Name, "listed", len(jobs))
+			closeMissing, err = false, nil
 		}
 	}
 	if err != nil {
@@ -338,10 +345,10 @@ func (f *Fetcher) fetchIncremental(ctx context.Context, c config.Company, src so
 	if err := store.TouchJobs(ctx, f.Pool, companyID, stillListed); err != nil {
 		return len(jobs), 0, 0, err
 	}
-	if !complete {
-		allIDs = nil // a partial listing must not close anything
+	if !complete || !closeMissing {
+		allIDs = nil // a partial or truncated listing must not close anything
 	}
-	seen, newly, err = f.saveCompanyJobs(ctx, src, companyID, detailed, allIDs, complete)
+	seen, newly, err = f.saveCompanyJobs(ctx, src, companyID, detailed, allIDs, complete && closeMissing)
 	// A sweep that left new postings for later is not recorded: the next
 	// run's incremental listing stops at the first page it already knows,
 	// so the rest would wait for the next full sweep, 20 hours away.

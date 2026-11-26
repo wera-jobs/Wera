@@ -159,3 +159,83 @@ func TestChatServerError(t *testing.T) {
 		t.Fatal("expected error on 500")
 	}
 }
+
+func TestChatJSONMode(t *testing.T) {
+	var formats []any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := jsonDecode(r, &body); err != nil {
+			t.Fatal(err)
+		}
+		formats = append(formats, body["response_format"])
+		okHandler(fakeReply)(w, r)
+	}))
+	defer srv.Close()
+	jsonMsgs := []Message{{Role: "user", Content: "Reply with JSON only."}}
+	textMsgs := []Message{{Role: "user", Content: "Write a letter."}}
+
+	on := NewClient(ClientOptions{BaseURL: srv.URL, Model: "json-on", JSON: true})
+	off := NewClient(ClientOptions{BaseURL: srv.URL, Model: "json-off"})
+	for _, call := range []struct {
+		c    *Client
+		msgs []Message
+	}{{on, jsonMsgs}, {on, textMsgs}, {off, jsonMsgs}} {
+		if _, err := call.c.Chat(context.Background(), "", call.msgs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f, ok := formats[0].(map[string]any); !ok || f["type"] != "json_object" {
+		t.Errorf("JSON call sent response_format %v, want json_object", formats[0])
+	}
+	if formats[1] != nil || formats[2] != nil {
+		t.Errorf("plain-text and JSON-off calls sent response_format %v, %v", formats[1], formats[2])
+	}
+}
+
+func TestChatJSONModeFallback(t *testing.T) {
+	var withFormat, without atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := jsonDecode(r, &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["response_format"] != nil {
+			withFormat.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"response_format is not supported by this model"}}`))
+			return
+		}
+		without.Add(1)
+		okHandler(fakeReply)(w, r)
+	}))
+	defer srv.Close()
+	msgs := []Message{{Role: "user", Content: "Reply with JSON only."}}
+	for range 2 {
+		c := NewClient(ClientOptions{BaseURL: srv.URL, Model: "no-json-mode", JSON: true})
+		comp, err := c.Chat(context.Background(), "", msgs)
+		if err != nil || comp.Content == "" {
+			t.Fatalf("Chat = %v, %v; want the reply sent without response_format", comp, err)
+		}
+	}
+	// The refusal is remembered: the second client goes straight to plain.
+	if withFormat.Load() != 1 || without.Load() != 2 {
+		t.Errorf("calls with response_format %d, without %d; want 1 and 2", withFormat.Load(), without.Load())
+	}
+}
+
+func TestChatJSONModeOtherErrorsStay(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"context length exceeded"}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(ClientOptions{BaseURL: srv.URL, Model: "json-other-error", JSON: true})
+	if _, err := c.Chat(context.Background(), "", []Message{{Role: "user", Content: "JSON please"}}); err == nil {
+		t.Fatal("want the 400 returned")
+	}
+	if calls.Load() != 1 {
+		t.Errorf("calls = %d, want 1 (no retry for an unrelated 400)", calls.Load())
+	}
+}

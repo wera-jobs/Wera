@@ -311,6 +311,14 @@ func sameText(a, b string) bool {
 	return norm(a) == norm(b)
 }
 
+// jsonKinds are the chat purposes whose replies are a JSON object, so they
+// ask the provider for JSON mode. The others reply in plain text.
+var jsonKinds = map[string]bool{
+	"moderation": true, "resume_import": true, "tailor": true, "bullet": true,
+	"applicant": true, "extract": true, "autofill": true, "suggest": true,
+	"interview_prep": true, "interview_practice": true,
+}
+
 // chatForUser makes one AI chat call on behalf of a user and records
 // its cost (kind names the purpose in llm_usage). It returns the reply.
 func (s *Server) chatForUser(ctx context.Context, userID int64, kind string, maxTokens int, msgs []scoring.Message) (string, error) {
@@ -323,6 +331,7 @@ func (s *Server) chatWithModel(ctx context.Context, userID int64, kind, model st
 	defer cancel()
 	opts := s.Env.AI.Options(model)
 	opts.Timeout, opts.MaxTokens, opts.Log = 105*time.Second, maxTokens, s.Log
+	opts.JSON = jsonKinds[kind]
 	client := scoring.NewClient(opts)
 	start := time.Now()
 	comp, err := client.Chat(ctx, "", msgs)

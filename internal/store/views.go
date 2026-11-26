@@ -28,6 +28,7 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int,
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
 	  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
+	  AND `+oneSibling+`
 	ORDER BY a.fit_score - `+agePenalty+` DESC NULLS LAST, j.first_seen_at DESC
 	LIMIT $2`, userID, limit)
 	if err != nil {
@@ -44,12 +45,16 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int,
 		  AND j.closed_at IS NULL
 		  AND uj.stage = 'pending_score'
 		  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
+		  AND `+oneSibling+`
 		ORDER BY `+queueOrder+`, j.first_seen_at DESC
 		LIMIT $2`, userID, room)
 		if err != nil {
 			return nil, 0, err
 		}
 		scored = append(scored, estimated...)
+	}
+	if err := fillAlsoIn(ctx, pool, userID, scored); err != nil {
+		return nil, 0, err
 	}
 	return scored, pending, nil
 }
@@ -59,15 +64,20 @@ func TodayJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, limit int,
 // seen, and a profile edit rescores jobs the user already knows, so the
 // job's first score for this user is what makes it new.
 func NewMatches(ctx context.Context, pool *pgxpool.Pool, userID int64, since time.Time, limit int) ([]JobView, error) {
-	return queryJobViews(ctx, pool, jobViewSelect+`
+	views, err := queryJobViews(ctx, pool, jobViewSelect+`
 	  AND j.closed_at IS NULL
 	  AND uj.stage = 'scored'
 	  AND (ap.status IS NULL OR ap.status = 'saved') AND ap.archived_at IS NULL
+	  AND `+oneSibling+`
 	  AND a.created_at >= $2
 	  AND NOT EXISTS (SELECT 1 FROM analyses old
 	                  WHERE old.user_id = uj.user_id AND old.job_id = uj.job_id AND old.kind = 'score' AND old.created_at < $2)
 	ORDER BY a.fit_score DESC NULLS LAST, j.first_seen_at DESC
 	LIMIT $3`, userID, since, normalizeLimit(limit, 100, 200))
+	if err != nil {
+		return nil, err
+	}
+	return views, fillAlsoIn(ctx, pool, userID, views)
 }
 
 func queryJobViews(ctx context.Context, pool *pgxpool.Pool, sqlText string, args ...any) ([]JobView, error) {
