@@ -20,9 +20,14 @@ import (
 const (
 	name     = "workday"
 	pageSize = 20 // the most Workday returns per page
-	// maxListed bounds how many postings are listed per company per run
-	// (Workday sorts newest first; very large boards keep their newest).
+	// maxListed bounds how many postings an incremental run lists per
+	// company (Workday sorts newest first, so new ones come first).
 	maxListed = 400
+	// maxSwept bounds a full sweep, which decides what closed. At 400, a
+	// third of boards were cut off and their older postings closed while
+	// still open (Wells Fargo closed 3,652 in a month). A board larger
+	// than this is listed up to it and reported as truncated.
+	maxSwept = 2000
 	// maxDetails bounds new postings detailed per company per run, so a
 	// first fill spreads over a few runs.
 	maxDetails = 60
@@ -122,7 +127,7 @@ type searchResponse struct {
 const pageConcurrency = 4
 
 // List implements sources.DetailSource: the newest postings, up to
-// maxListed. The first page gives the total; the rest are fetched
+// maxSwept (wrapping ErrTruncatedList when the board has more). The first page gives the total; the rest are fetched
 // pageConcurrency at a time.
 func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, error) {
 	s, err := parseToken(token)
@@ -143,7 +148,7 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 	}
 	pages := []searchResponse{first}
 	var partial error
-	if limit := min(first.Total, maxListed); limit > pageSize {
+	if limit := min(first.Total, maxSwept); limit > pageSize {
 		rest := make([]searchResponse, (limit-1)/pageSize)
 		errs := make([]error, len(rest))
 		g, gctx := errgroup.WithContext(ctx)
@@ -182,6 +187,9 @@ func (a *Adapter) List(ctx context.Context, token string) ([]sources.RawJob, err
 	}
 	if partial != nil {
 		return jobs, fmt.Errorf("%w: %w", sources.ErrPartialList, partial)
+	}
+	if first.Total > maxSwept {
+		return jobs, fmt.Errorf("%w: %d of %d postings", sources.ErrTruncatedList, len(jobs), first.Total)
 	}
 	return jobs, nil
 }

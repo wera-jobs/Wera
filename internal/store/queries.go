@@ -98,8 +98,12 @@ type JobView struct {
 	// Never claimed for a posting with no date.
 	Early bool `json:"early"`
 	// CompanyFollowed: the user follows the company (their new roles show up as a notice).
-	CompanyFollowed bool    `json:"company_followed"`
-	ratings         *string // the ratings object as the model wrote it, parsed by finish
+	CompanyFollowed bool `json:"company_followed"`
+	// AlsoIn lists the other places the same role (same company, title and
+	// text) is posted for among the user's matches; lists show the role
+	// once (see oneSibling).
+	AlsoIn  []string `json:"also_in,omitempty"`
+	ratings *string  // the ratings object as the model wrote it, parsed by finish
 }
 
 // FitParts are a scored job's parts of fit, each 0-10, and whether
@@ -221,6 +225,64 @@ func normalizeLimit(limit, def, ceiling int) int {
 // its company; the follows primary key (user_id, company_id) answers it.
 const followedOnly = "EXISTS (SELECT 1 FROM company_follows f WHERE f.user_id = uj.user_id AND f.company_id = j.company_id)"
 
+// oneSibling keeps one posting of a role posted once per city (same
+// company and text_hash, see migration 0052) in a list of matches: the
+// best scored, then best estimated, then the oldest. A posting the user
+// tracks always shows, and only open, untracked or saved siblings in the
+// queue hide one.
+const oneSibling = `(ap.status IS NOT NULL OR j.text_hash IS NULL OR NOT EXISTS (
+	  SELECT 1 FROM jobs j2
+	  JOIN user_jobs uj2 ON uj2.job_id = j2.id AND uj2.user_id = uj.user_id AND uj2.stage IN ('scored', 'pending_score')
+	  LEFT JOIN analyses a2 ON a2.id = uj2.analysis_id
+	  LEFT JOIN applications ap2 ON ap2.job_id = j2.id AND ap2.user_id = uj2.user_id
+	  WHERE j2.company_id = j.company_id AND j2.text_hash = j.text_hash AND j2.id <> j.id AND j2.closed_at IS NULL
+	    AND (ap2.status IS NULL OR ap2.status = 'saved') AND ap2.archived_at IS NULL
+	    AND (COALESCE(a2.fit_score, -1), COALESCE(uj2.estimated_score, -1), -j2.id)
+	      > (COALESCE(a.fit_score, -1), COALESCE(uj.estimated_score, -1), -j.id)))`
+
+// maxAlsoIn bounds the other places listed for one role.
+const maxAlsoIn = 10
+
+// fillAlsoIn sets AlsoIn on each view: where else the same role is posted
+// among the user's open matches.
+func fillAlsoIn(ctx context.Context, pool *pgxpool.Pool, userID int64, views []JobView) error {
+	if len(views) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(views))
+	for i, v := range views {
+		ids[i] = v.ID
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT j.id, (array_agg(DISTINCT COALESCE(NULLIF(s.location_raw, ''), 'Unlisted')))[1:$3]
+		FROM jobs j
+		JOIN jobs s ON s.company_id = j.company_id AND s.text_hash = j.text_hash AND s.id <> j.id AND s.closed_at IS NULL
+		JOIN user_jobs us ON us.job_id = s.id AND us.user_id = $1 AND us.stage IN ('scored', 'pending_score')
+		WHERE j.id = ANY($2::bigint[]) AND j.text_hash IS NOT NULL
+		  AND COALESCE(NULLIF(s.location_raw, ''), 'Unlisted') IS DISTINCT FROM COALESCE(NULLIF(j.location_raw, ''), 'Unlisted')
+		GROUP BY j.id`, userID, ids, maxAlsoIn)
+	if err != nil {
+		return fmt.Errorf("load other places: %w", err)
+	}
+	defer rows.Close()
+	at := map[int64][]string{}
+	for rows.Next() {
+		var id int64
+		var locs []string
+		if err := rows.Scan(&id, &locs); err != nil {
+			return err
+		}
+		at[id] = locs
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range views {
+		views[i].AlsoIn = at[views[i].ID]
+	}
+	return nil
+}
+
 // listedAt is when a posting went up: the date its job board gives, or
 // when Wera first saw it, whichever is earlier. A company Wera starts
 // watching brings postings that are months old, all first seen that day.
@@ -271,6 +333,7 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 	if q.Status == "" && !q.Archived {
 		where = append(where, "j.closed_at IS NULL")
 		where = append(where, "uj.stage IN ('scored','pending_score')")
+		where = append(where, oneSibling)
 	}
 	if q.Industry != "" {
 		args = append(args, q.Industry)
@@ -348,7 +411,15 @@ func ListJobs(ctx context.Context, pool *pgxpool.Pool, userID int64, q JobQuery)
 		v.finish()
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if q.Status == "" && !q.Archived {
+		if err := fillAlsoIn(ctx, pool, userID, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // GetJob returns one of the user's jobs by id, regardless of stage (the

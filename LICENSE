@@ -1,21 +1,29 @@
-MIT License
+Copyright (c) 2026 Wera. All rights reserved.
 
-Copyright (c) 2026 jessechumo
+This repository and everything in it (source code, documentation,
+configuration, data files, images and other assets) is proprietary to
+Wera and is not licensed for use by anyone else.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Being able to see this repository on GitHub, or any other place it is
+published, does not grant any right to use, copy, modify, merge, publish,
+distribute, sublicense, sell or create works based on any part of it.
+Doing any of those requires Wera's prior written permission.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+"Wera", the Wera logo and the brand assets are trademarks of Wera. They
+may not be used without Wera's prior written permission.
+
+Third-party code included in or used by this software stays under its own
+license; see THIRD_PARTY_NOTICES.md. Nothing here limits the rights those
+licenses give.
+
+Versions of this repository published before this notice was added were
+released under the MIT License, and stay under it for anyone who received
+them under it. This notice covers all later versions.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+WERA BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+For permission requests, contact Wera through https://www.wera-jobs.com.

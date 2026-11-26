@@ -215,6 +215,8 @@ type detailBoard struct {
 	details atomic.Int64
 	// partial lists only the first posting and reports the rest missing.
 	partial bool
+	// truncated lists only the first posting and reports the board larger.
+	truncated bool
 	// perRun caps the details per run (0 is the fetcher's default).
 	perRun int
 }
@@ -237,6 +239,9 @@ func (b *detailBoard) List(context.Context, string) ([]sources.RawJob, error) {
 	}
 	if b.partial {
 		return out[:1], fmt.Errorf("%w: page 2: 503", sources.ErrPartialList)
+	}
+	if b.truncated {
+		return out[:1], fmt.Errorf("%w: 1 of %d postings", sources.ErrTruncatedList, len(out))
 	}
 	return out, nil
 }
@@ -307,6 +312,33 @@ func TestFetchPartialSweepClosesNothing(t *testing.T) {
 	}
 	if again, _ := store.LastFullFetch(ctx, f.Pool, companyID); !again.Equal(swept) {
 		t.Errorf("a partial sweep was recorded as full: %v, was %v", again, swept)
+	}
+}
+
+// A sweep of a board larger than the source lists closes nothing (the
+// unlisted postings may be open) but still counts as the day's sweep.
+func TestFetchTruncatedSweepClosesNothing(t *testing.T) {
+	board := &detailBoard{jobs: []sources.RawJob{raw("1", "SRE"), raw("2", "Platform Engineer"), raw("3", "DevOps Engineer")}}
+	f := newFetcher(t, map[string]sources.Source{"detailboard": board})
+	ctx := context.Background()
+	companyID, name := testutil.Company(t, f.Pool, "ai_ml")
+	cos := []config.Company{{Name: name, ATS: "detailboard", Token: name, Industry: "ai_ml"}}
+	if _, err := f.Run(ctx, cos, name); err != nil {
+		t.Fatal(err)
+	}
+	swept, _ := store.LastFullFetch(ctx, f.Pool, companyID)
+
+	board.truncated = true
+	board.jobs = append([]sources.RawJob{raw("4", "Data Engineer")}, board.jobs...)
+	if st, err := f.Run(ctx, cos, name); err != nil || st.JobsNew != 1 || st.CompaniesOK != 1 {
+		t.Fatalf("truncated sweep: %+v %v", st, err)
+	}
+	var closed int64
+	if err := f.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE company_id = $1 AND closed_at IS NOT NULL`, companyID).Scan(&closed); err != nil || closed != 0 {
+		t.Errorf("a truncated sweep closed %d postings (%v)", closed, err)
+	}
+	if again, _ := store.LastFullFetch(ctx, f.Pool, companyID); !again.After(swept) {
+		t.Errorf("a truncated sweep was not recorded: %v, was %v", again, swept)
 	}
 }
 

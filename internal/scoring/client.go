@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,7 +22,17 @@ type request struct {
 	Temperature    float64   `json:"temperature"`
 	MaxTokens      int       `json:"max_tokens"`
 	Messages       []Message `json:"messages"`
+	// ResponseFormat asks for a JSON object reply ({"type":"json_object"}).
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
+
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
+// jsonModeRejected remembers the endpoints and models that refused
+// response_format, so later calls skip it instead of failing first.
+var jsonModeRejected sync.Map
 
 // completionUsage mirrors the OpenAI-style usage block. Cached tokens are
 // nested in prompt_tokens_details.
@@ -85,6 +97,7 @@ type Client struct {
 	baseBackoff time.Duration  // first 429 backoff; doubles each retry
 	cacheKeys   bool           // send prompt_cache_key
 	extraBody   map[string]any // merged into every request body
+	json        bool           // ask for a JSON object reply
 }
 
 // ClientOptions configures NewClient.
@@ -104,6 +117,10 @@ type ClientOptions struct {
 	// ExtraBody is merged into every request body, for provider- or
 	// model-specific options (e.g. turning off reasoning).
 	ExtraBody map[string]any
+	// JSON asks for a JSON object reply (response_format json_object) when
+	// the messages mention JSON. A provider that rejects the field is
+	// asked again without it, and not asked with it again.
+	JSON bool
 }
 
 // NewClient builds a scoring client.
@@ -130,6 +147,7 @@ func NewClient(opts ClientOptions) *Client {
 		baseBackoff: backoff,
 		cacheKeys:   opts.CacheKeys,
 		extraBody:   opts.ExtraBody,
+		json:        opts.JSON,
 	}
 }
 
@@ -148,13 +166,74 @@ func (c *Client) Chat(ctx context.Context, cacheKey string, messages []Message) 
 	if !c.cacheKeys {
 		cacheKey = ""
 	}
-	body, err := c.body(request{
+	r := request{
 		Model:          c.model,
 		PromptCacheKey: cacheKey,
 		Temperature:    0.1,
 		MaxTokens:      c.maxTokens,
 		Messages:       messages,
-	})
+	}
+	if c.wantsJSON(messages) {
+		r.ResponseFormat = &responseFormat{Type: "json_object"}
+		comp, err := c.send(ctx, r)
+		if err == nil || !rejectsJSONMode(err) {
+			return comp, err
+		}
+		jsonModeRejected.Store(c.jsonModeKey(), true)
+		if c.log != nil {
+			c.log.Warn("provider rejected response_format; sending without it", "model", c.model, "err", err)
+		}
+		r.ResponseFormat = nil
+	}
+	return c.send(ctx, r)
+}
+
+// wantsJSON reports whether this call should ask for JSON mode: the client
+// is set for it, the provider has not refused it, the extra body does not
+// set its own, and the messages say JSON (OpenAI refuses json_object
+// otherwise).
+func (c *Client) wantsJSON(messages []Message) bool {
+	if !c.json {
+		return false
+	}
+	if _, own := c.extraBody["response_format"]; own {
+		return false
+	}
+	if _, refused := jsonModeRejected.Load(c.jsonModeKey()); refused {
+		return false
+	}
+	for _, m := range messages {
+		if strings.Contains(strings.ToLower(m.Content), "json") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Client) jsonModeKey() string { return c.baseURL + "|" + c.model }
+
+// statusError is a non-429 HTTP failure from the provider.
+type statusError struct {
+	code int
+	msg  string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+// rejectsJSONMode reports whether err is a provider refusing the
+// response_format field rather than failing for another reason.
+func rejectsJSONMode(err error) bool {
+	var se *statusError
+	if !errors.As(err, &se) || (se.code != http.StatusBadRequest && se.code != http.StatusUnprocessableEntity) {
+		return false
+	}
+	m := strings.ToLower(se.msg)
+	return strings.Contains(m, "response_format") || strings.Contains(m, "json_object") || strings.Contains(m, "response format")
+}
+
+// send posts one request, retrying 429s.
+func (c *Client) send(ctx context.Context, r request) (*Completion, error) {
+	body, err := c.body(r)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
@@ -192,7 +271,7 @@ func (c *Client) Chat(ctx context.Context, cacheKey string, messages []Message) 
 				c.OnRateLimit()
 			}
 		default:
-			return nil, fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, endpoint, truncate(raw))
+			return nil, &statusError{resp.StatusCode, fmt.Sprintf("HTTP %d from %s: %s", resp.StatusCode, endpoint, truncate(raw))}
 		}
 
 		if attempt >= len(backoffs) {
