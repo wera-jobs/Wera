@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.37.0](https://github.com/wera-jobs/Wera/compare/wera-v0.36.1...wera-v0.37.0) (2026-11-26)
+
+
+### Features
+
+* **scoring:** ask for JSON mode and read JSON past bracketed prose ([55db7ce](https://github.com/wera-jobs/Wera/commit/55db7ced882d7d0261fbde602ba5e50064bbe224)), closes [#294](https://github.com/wera-jobs/Wera/issues/294)
+* **scoring:** reuse facts across a role's postings for other cities ([2b9de33](https://github.com/wera-jobs/Wera/commit/2b9de33008e6ff1fd28c71f63b17b95a289a1d9a))
+* **store:** show a role posted for several cities once in lists ([91bdb98](https://github.com/wera-jobs/Wera/commit/91bdb98e6fe33bbf6ba4b90226cf274055adf648)), closes [#293](https://github.com/wera-jobs/Wera/issues/293)
+
+
+### Bug Fixes
+
+* backend batch (JSON mode, Workday closures, kept exclusions, multi-city roles, license) ([ffd18bf](https://github.com/wera-jobs/Wera/commit/ffd18bf4e8e109e91140931d752cbe2150011807))
+* **sources:** stop false closures on large Workday boards, list Eightfold incrementally ([84a79b4](https://github.com/wera-jobs/Wera/commit/84a79b4bd5128b8b08dada90c3516df0d0adcc20)), closes [#292](https://github.com/wera-jobs/Wera/issues/292)
+* **store:** keep fact-excluded jobs as excluded rows with their reason ([44a8db2](https://github.com/wera-jobs/Wera/commit/44a8db2f2fc0ff034925e29ac8c96c952249fbc6)), closes [#291](https://github.com/wera-jobs/Wera/issues/291)
+
 ## [0.36.1](https://github.com/wera-jobs/Wera/compare/wera-v0.36.0...wera-v0.36.1) (2026-11-25)
 
 
