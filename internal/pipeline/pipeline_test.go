@@ -235,8 +235,10 @@ func TestMatchingEndToEnd(t *testing.T) {
 	if _, err := FilterUser(ctx, pool, eng, nil, p2, nil); err != nil {
 		t.Fatalf("filter user 2: %v", err)
 	}
-	if stage, _ := stageOf(t, pool, u2.ID, tooSenior); stage != "" {
-		t.Errorf("known facts not applied at filter time: %s", stage)
+	// The row stays, marked excluded with the rule, so the job's page
+	// can say why.
+	if stage, reason := stageOf(t, pool, u2.ID, tooSenior); stage != "excluded" || !strings.HasPrefix(reason, "llm:") {
+		t.Errorf("known facts not applied at filter time: %s %q", stage, reason)
 	}
 	if _, err := ScoreUser(ctx, pool, env, log, p2, 0, []int64{good}, 1, nil); err != nil {
 		t.Fatalf("score user 2: %v", err)
@@ -371,14 +373,33 @@ func TestAddingARoleFamilyKeepsScores(t *testing.T) {
 	if fit := todayScore(t, pool, u.ID, stale); fit != 88 {
 		t.Errorf("job scored by the old method shows %d, want its old 88 until rescored", fit)
 	}
-	if stage, _ := stageOf(t, pool, u.ID, tooMany); stage != "" {
-		t.Errorf("scored job asking more years than now accepted: %s, want dropped", stage)
+	if stage, reason := stageOf(t, pool, u.ID, tooMany); stage != "excluded" || reason != "llm:years>2" {
+		t.Errorf("scored job asking more years than now accepted: %s %q, want excluded by its years", stage, reason)
 	}
 	if stage, _ := stageOf(t, pool, u.ID, swe); stage != "pending_score" {
 		t.Errorf("job the new family lets in: %s, want pending_score", stage)
 	}
 	if stage, _ := stageOf(t, pool, u.ID, offTopic); stage != "" {
 		t.Errorf("a job still rejected got a row: %s", stage)
+	}
+
+	// Accepting 3 years again lets the excluded job back, with its old
+	// score relinked for free.
+	prefs.MaxYearsRequired = 3
+	p = testutil.Profile(t, pool, u.ID, sreProfile, prefs)
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatalf("refilter with 3 years: %v", err)
+	}
+	if stage, reason := stageOf(t, pool, u.ID, tooMany); stage != "scored" || reason != "" {
+		t.Errorf("job back within the years accepted: %s %q, want scored", stage, reason)
+	}
+	if coral.fits.Load() != calls {
+		t.Error("letting a job back in must not score it again")
+	}
+	prefs.MaxYearsRequired = 2
+	p = testutil.Profile(t, pool, u.ID, sreProfile, prefs)
+	if _, err := FilterUser(ctx, pool, eng, nil, p, nil); err != nil {
+		t.Fatal(err)
 	}
 
 	// The next pass knows the jobs were filtered with these preferences.
