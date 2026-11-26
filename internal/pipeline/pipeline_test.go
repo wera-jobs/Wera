@@ -899,3 +899,56 @@ func TestScoreNowKeepsAnExcludedJobAndTakesTheLock(t *testing.T) {
 		t.Errorf("after the match: %s, want scored", stage)
 	}
 }
+
+// TestSiblingFactsAreReused checks that a role posted for another city
+// reuses the facts already read for it, without its location facts: the
+// first posting's reading said it can't be done from the US, which must
+// not rule out the Seattle one.
+func TestSiblingFactsAreReused(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	coral := &fakeCoral{}
+	srv := httptest.NewServer(coral)
+	t.Cleanup(srv.Close)
+	env := testEnv(srv.URL)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	text := testutil.Unique("Keep Go services healthy on Kubernetes.")
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Austin, TX", Description: text},
+		testutil.Job{Title: "Site Reliability Engineer", Location: "Seattle, WA", Description: text})
+	years, no := 2, false
+	read := &scoring.Facts{Seniority: "mid", YearsRequired: &years, Sponsorship: "unknown", USEligible: &no,
+		WorkMode: "onsite", LocationSummary: "Austin, TX (onsite)", SkillsRequired: []string{"Go", "Kubernetes"}, Digest: "Runs services."}
+	if err := store.SaveFacts(ctx, pool, scoring.FactsResult{JobID: ids[0], Facts: read}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	u := testutil.User(t, pool, false)
+	p := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM analyses WHERE profile_hash = $1`, scoring.ScoreKey(p.ProfileHash))
+	})
+	if _, err := FilterUser(ctx, pool, testEngine(t), nil, p, nil); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ScoreUser(ctx, pool, env, log, p, 0, []int64{ids[1]}, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coral.facts.Load() != 0 || st.FactsReused != 1 {
+		t.Errorf("facts calls %d, reused %d; want the sibling's facts reused", coral.facts.Load(), st.FactsReused)
+	}
+	got, err := store.FactsFor(ctx, pool, []int64{ids[1]})
+	if err != nil || got[ids[1]] == nil {
+		t.Fatalf("Seattle facts: %v %v", got, err)
+	}
+	f := got[ids[1]]
+	if f.USEligible != nil || f.WorkMode != "unknown" || f.LocationSummary != "Seattle, WA" ||
+		f.YearsRequired == nil || *f.YearsRequired != 2 || len(f.SkillsRequired) != 2 {
+		t.Errorf("Seattle facts %+v: want the role's facts with its own location", f)
+	}
+	if stage, reason := stageOf(t, pool, u.ID, ids[1]); stage != "scored" {
+		t.Errorf("Seattle posting: %s %q, want scored", stage, reason)
+	}
+}

@@ -23,6 +23,18 @@ type Facts struct {
 	Digest           string   `json:"digest"`
 }
 
+// ForSibling is f reused for another posting of the same role, same title
+// and text, in another place: the location facts were read with the
+// other posting's location, so they are left for the scorer and the
+// location rules to decide.
+func (f Facts) ForSibling(location string) *Facts {
+	f.USEligible = nil
+	f.WorkMode = "unknown"
+	f.LocationSummary = clipRunes(strings.TrimSpace(location), 120)
+	f.SkillsRequired = append([]string(nil), f.SkillsRequired...)
+	return &f
+}
+
 // FactsCacheKey is shared by every facts call: the system prompt is the
 // same for all postings, so it is a cached read for everyone.
 const FactsCacheKey = "wera-facts-v1"

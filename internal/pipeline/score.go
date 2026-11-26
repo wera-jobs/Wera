@@ -179,6 +179,7 @@ type ScoreStats struct {
 	Reused           int // linked to an existing analysis, no LLM call
 	FactsExtracted   int // postings whose shared facts were extracted now
 	FactsDeferred    int // postings left without facts this run (see factsLimit)
+	FactsReused      int // postings given a same-text sibling's facts at no cost
 	ExcludedByFacts  int // excluded from shared facts, no per-user LLM call
 	Deferred         int // ranked below the user's score limit: estimate only for now
 	QuickGraded      int // given a quick grade (many jobs per call, no reason)
@@ -202,6 +203,7 @@ func (s *ScoreStats) Add(o *ScoreStats) {
 	s.Reused += o.Reused
 	s.FactsExtracted += o.FactsExtracted
 	s.FactsDeferred += o.FactsDeferred
+	s.FactsReused += o.FactsReused
 	s.ExcludedByFacts += o.ExcludedByFacts
 	s.Deferred += o.Deferred
 	s.QuickGraded += o.QuickGraded
@@ -375,6 +377,11 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 			missing = append(missing, j)
 		}
 	}
+	// The same role posted for another city already read: its facts, less
+	// the location ones, serve this posting at no cost.
+	if missing, st.FactsReused, err = reuseSiblingFacts(ctx, pool, env, log, missing, facts); err != nil {
+		return st, err
+	}
 	// The user's score limit decides how far down their queue facts are
 	// worth extracting this run.
 	n, why := -1, ""
@@ -478,7 +485,7 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 	log.Info("scoring pass finished", "user_id", prof.UserID,
 		"scored", st.Scored, "excluded", st.Excluded, "score_failed", st.Failed,
 		"skipped", st.Skipped, "reused", st.Reused,
-		"facts_extracted", st.FactsExtracted, "facts_deferred", st.FactsDeferred, "excluded_by_facts", st.ExcludedByFacts,
+		"facts_extracted", st.FactsExtracted, "facts_reused", st.FactsReused, "facts_deferred", st.FactsDeferred, "excluded_by_facts", st.ExcludedByFacts,
 		"quick_graded", st.QuickGraded, "deferred", st.Deferred,
 		"prompt_tokens", st.PromptTokens, "cached_tokens", st.CachedTokens,
 		"completion_tokens", st.CompletionTokens, "cost_usd", fmt.Sprintf("%.6f", st.CostUSD))
@@ -497,6 +504,43 @@ const (
 // run extracts for each score it may still give: enough to rule some out
 // and pick the best for the digest.
 const inactiveFactsPerScore = 3
+
+// reuseSiblingFacts gives each job in missing that has a sibling posting
+// with facts (same company, title and text, see store.SiblingFacts) those
+// facts, adapted to its own location, saved as its own at no cost and
+// added to facts. It returns the jobs still missing facts and how many
+// were reused.
+func reuseSiblingFacts(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *slog.Logger, missing []scoring.Job, facts map[int64]*scoring.Facts) ([]scoring.Job, int, error) {
+	if len(missing) == 0 {
+		return missing, 0, nil
+	}
+	ids := make([]int64, len(missing))
+	for i, j := range missing {
+		ids[i] = j.ID
+	}
+	siblings, err := store.SiblingFacts(ctx, pool, ids)
+	if err != nil {
+		return missing, 0, err
+	}
+	var rest []scoring.Job
+	reused := 0
+	for _, j := range missing {
+		sf := siblings[j.ID]
+		if sf == nil {
+			rest = append(rest, j)
+			continue
+		}
+		f := sf.ForSibling(j.Location)
+		if err := store.SaveFacts(ctx, pool, scoring.FactsResult{JobID: j.ID, Facts: f}, env.AI.Model); err != nil {
+			log.Warn("saving sibling facts failed", "job_id", j.ID, "err", err)
+			rest = append(rest, j)
+			continue
+		}
+		facts[j.ID] = f
+		reused++
+	}
+	return rest, reused, nil
+}
 
 // factsLimit is how many postings without facts one run extracts them
 // for, and whether there is a limit at all. An active user's whole queue

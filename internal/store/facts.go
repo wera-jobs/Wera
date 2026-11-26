@@ -39,6 +39,40 @@ func FactsFor(ctx context.Context, pool *pgxpool.Pool, jobIDs []int64) (map[int6
 	return out, rows.Err()
 }
 
+// SiblingFacts finds, for jobs without facts, the facts of another posting
+// of the same company with the same title and text (the same role posted
+// for another city, see migration 0052). It returns them as read for that
+// posting; the caller adapts the location facts (scoring.Facts.ForSibling).
+func SiblingFacts(ctx context.Context, pool *pgxpool.Pool, jobIDs []int64) (map[int64]*scoring.Facts, error) {
+	out := map[int64]*scoring.Facts{}
+	if len(jobIDs) == 0 {
+		return out, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT ON (j.id) j.id, f.facts
+		FROM jobs j
+		JOIN jobs s ON s.company_id = j.company_id AND s.text_hash = j.text_hash AND s.id <> j.id
+		JOIN job_facts f ON f.job_id = s.id AND f.content_hash = s.content_hash
+		WHERE j.id = ANY($1::bigint[]) AND j.text_hash IS NOT NULL
+		ORDER BY j.id, f.created_at DESC`, jobIDs)
+	if err != nil {
+		return nil, fmt.Errorf("load sibling facts: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		var f scoring.Facts
+		if json.Unmarshal(raw, &f) == nil {
+			out[id] = &f
+		}
+	}
+	return out, rows.Err()
+}
+
 // SaveFacts stores a job's facts for its current content.
 func SaveFacts(ctx context.Context, pool *pgxpool.Pool, r scoring.FactsResult, model string) error {
 	raw, err := json.Marshal(r.Facts)
