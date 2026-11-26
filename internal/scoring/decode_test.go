@@ -17,6 +17,8 @@ func TestDecodeJSON(t *testing.T) {
 		{"closed too early", `{"bullets": {"a": "x"}, "skills": {"g": "y"}}, "notes": ["n1", "n2"]}`, true, 2},
 		{"closed too early twice", `{"bullets": {"a": "x"}}, "skills": {}}, "notes": ["n"]}`, true, 1},
 		{"sentence around it", "Here you go:\n{\"bullets\": {}, \"notes\": [\"n\"]}\nGood luck!", true, 1},
+		{"brackets in the preamble", "Results [2 notes] below:\n{\"bullets\": {}, \"notes\": [\"a\", \"b\"]}\nDone.", true, 2},
+		{"brace in the preamble", "Using {placeholder} style:\n```json\n{\"bullets\": {}, \"notes\": [\"n\"]}\n```\nThanks", true, 1},
 		{"not JSON", `I can't help with that.`, false, 0},
 		{"cut off", `{"bullets": {"a": "x"`, false, 0},
 	}

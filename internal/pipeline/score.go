@@ -268,7 +268,7 @@ func ScoreUser(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *sl
 	}
 
 	opts := env.AI.Options(env.AI.Model)
-	opts.Log = log
+	opts.Log, opts.JSON = log, true
 	client := scoring.NewClient(opts)
 	scorer := &scoring.Scorer{
 		Client:      client,
@@ -542,7 +542,7 @@ func quickGrade(ctx context.Context, pool *pgxpool.Pool, env *config.Env, log *s
 		return 0, nil
 	}
 	opts := env.AI.Options(env.AI.Model)
-	opts.MaxTokens, opts.Log = 800, log
+	opts.MaxTokens, opts.Log, opts.JSON = 800, log, true
 	graded := 0
 	g := &scoring.QuickGrader{
 		Client: scoring.NewClient(opts), Profile: []byte(prof.Markdown), ProfileHash: prof.ProfileHash,
