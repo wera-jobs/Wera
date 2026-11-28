@@ -187,6 +187,24 @@ func TestStatsAppliedThisWeek(t *testing.T) {
 	put(ids[4], "applied")
 	pool.Exec(ctx, `UPDATE applications SET applied_at = now() - interval '9 days' WHERE job_id = $1`, ids[4])
 
+	// The job view says when the user applied: their date, set above.
+	views, err := store.ListJobs(ctx, pool, user.ID, store.JobQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range views {
+		switch v.ID {
+		case ids[4]:
+			if v.AppliedAt == nil || time.Since(*v.AppliedAt) < 8*24*time.Hour {
+				t.Errorf("applied_at for the backdated job: %v, want 9 days ago", v.AppliedAt)
+			}
+		case ids[2]:
+			if v.AppliedAt != nil {
+				t.Errorf("applied_at for a saved job: %v, want none", v.AppliedAt)
+			}
+		}
+	}
+
 	st, err := store.Stats(ctx, pool, user.ID, "UTC")
 	if err != nil {
 		t.Fatal(err)
