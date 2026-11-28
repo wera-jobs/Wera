@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.39.0](https://github.com/wera-jobs/Wera/compare/wera-v0.38.0...wera-v0.39.0) (2026-11-28)
+
+
+### Features
+
+* **api:** Ask Wera, an assistant grounded on the user's data ([708a689](https://github.com/wera-jobs/Wera/commit/708a689addb565c8ad47d569e12f6eb31e55f2db)), closes [#199](https://github.com/wera-jobs/Wera/issues/199)
+* **api:** suggest tracker updates from forwarded recruiter replies ([7b8de72](https://github.com/wera-jobs/Wera/commit/7b8de726828272931280c4035d01cebaf7cf04ac)), closes [#201](https://github.com/wera-jobs/Wera/issues/201)
+* Ask Wera, email reply suggestions, ranking before facts ([3ee660e](https://github.com/wera-jobs/Wera/commit/3ee660ec60519cbb6b7f37460cad2ecead9a74b1))
+* **pipeline:** rank postings before their facts exist ([d2f3694](https://github.com/wera-jobs/Wera/commit/d2f36941706e2bc40492c758006ea26ed6c31316)), closes [#173](https://github.com/wera-jobs/Wera/issues/173)
+
+
+### Bug Fixes
+
+* **api:** keep assistant answers to the confirmed details ([93deb16](https://github.com/wera-jobs/Wera/commit/93deb16a8202225c48b3d7aeb67b42b51b92b539)), closes [#199](https://github.com/wera-jobs/Wera/issues/199)
+
+
+### Refactoring
+
+* satisfy golangci-lint in the assistant and email code ([ee9c2f7](https://github.com/wera-jobs/Wera/commit/ee9c2f7840d478c27ca1eeb43bb28aadae2ed8a5))
+
 ## [0.38.0](https://github.com/wera-jobs/Wera/compare/wera-v0.37.0...wera-v0.38.0) (2026-11-28)
 
 
