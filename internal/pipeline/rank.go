@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -73,27 +74,25 @@ func keyed(model, kind, prefix string) string {
 //
 // Jobs with shared facts are ranked by Blend (see there) and by what the AI's
 // scores so far say about this user (see Learned); the rest (new postings
-// whose facts are not extracted yet) fall back to TF-IDF on the posting until
-// they have facts.
+// whose facts are not extracted yet) are ranked on the posting itself (see
+// bareOrder), and that order decides which postings get facts first.
 func RankPending(ctx context.Context, pool *pgxpool.Pool, e *Embedder, prof *store.Profile) (map[int64]float64, error) {
 	docs, hasFacts, err := store.RankDocs(ctx, pool, prof.UserID)
 	if err != nil {
 		return nil, err
 	}
-	// TF-IDF on the posting only for jobs without facts: the blend below
-	// replaces it for the rest.
+	// Jobs without facts are ranked on the posting itself (see bareOrder);
+	// the blend below ranks the rest.
 	bare := make([]relevance.Doc, 0, len(docs)-len(hasFacts))
 	for _, d := range docs {
 		if !hasFacts[d.ID] {
 			bare = append(bare, d)
 		}
 	}
-	est := relevance.Rank(prof.Markdown, bare)
-	exact := make(map[int64]float64, len(est))
-	for id, v := range est {
-		exact[id] = float64(v)
-	}
-	if len(docs) > 0 {
+	order := bareOrder(ctx, pool, e, prof, bare)
+	est := relevance.Scale(order)
+	exact := relevance.ScaleExact(order)
+	if len(docs) > len(bare) {
 		ids := make([]int64, len(docs))
 		titles := make(map[int64]string, len(docs))
 		for i, d := range docs {
@@ -139,6 +138,125 @@ func RankPending(ctx context.Context, pool *pgxpool.Pool, e *Embedder, prof *sto
 		}
 	}
 	return exact, store.SetEstimates(ctx, pool, prof.UserID, est)
+}
+
+// Ranking postings before their facts exist (#173). Measured on five
+// users' newest 250 AI scores each (scratch copy of the live data, Nov 27):
+// TF-IDF on the posting alone, the previous order, agreed with the AI at
+// Spearman 0.41 on average and put 64% of the good (65+) jobs in its top
+// third; adding the embedding of the posting's opening and what the
+// user's own scores say about it (the same ridge as Learned, which carries
+// over from facts vectors) gave 0.54 and 72%. With facts: 0.72 and 79%.
+const (
+	bareWeightWords   = 1.0
+	bareWeightExcerpt = 2.0
+	// excerptRunes is how much of the posting is embedded after its title.
+	excerptRunes = 1500
+	// maxExcerptsPerRank caps the postings embedded in one ranking, best by
+	// words first, so a queue of thousands without facts never stalls a
+	// run; later rankings embed the next ones. Each posting is embedded once
+	// for everyone.
+	maxExcerptsPerRank = embedChunk
+)
+
+// excerptKey names excerpt vectors apart from facts vectors: a posting's
+// row is replaced by its facts vector once the facts exist.
+func (e *Embedder) excerptKey() string { return e.jobKey() + "#x" }
+
+// ExcerptText is what a posting without facts is embedded as: its title
+// and the opening of its text.
+func ExcerptText(title, body string) string {
+	b := strings.Join(strings.Fields(body), " ")
+	if r := []rune(b); len(r) > excerptRunes {
+		b = string(r[:excerptRunes])
+	}
+	return title + ". " + b
+}
+
+// bareOrder orders the jobs without facts (higher is better): TF-IDF on
+// the posting, plus, with an embedder, the profile's similarity to the
+// posting's opening and the learned estimate from the user's scores. A job
+// not embedded yet counts as average on those.
+func bareOrder(ctx context.Context, pool *pgxpool.Pool, e *Embedder, prof *store.Profile, bare []relevance.Doc) map[int64]float64 {
+	if len(bare) == 0 {
+		return map[int64]float64{}
+	}
+	words := relevance.Standardize(relevance.Similarities(embed.ProfileText(prof.Markdown), bare))
+	out := make(map[int64]float64, len(bare))
+	for id, v := range words {
+		out[id] = bareWeightWords * v
+	}
+	if e == nil {
+		return out
+	}
+	vecs, pv, err := e.excerptVectors(ctx, pool, prof, bare, words)
+	if err != nil {
+		e.Log.Warn("embedding postings without facts failed; ranking them by words", "user_id", prof.UserID, "err", err)
+	}
+	if len(vecs) == 0 || pv == nil {
+		return out
+	}
+	sims := make(map[int64]float64, len(vecs))
+	for id, v := range vecs {
+		sims[id] = embed.Cosine(pv, v)
+	}
+	for id, v := range relevance.Standardize(sims) {
+		out[id] += bareWeightExcerpt * v
+	}
+	learned, n, err := e.Learned(ctx, pool, prof, vecs)
+	if err != nil {
+		e.Log.Warn("ranking postings without facts without the user's scores", "user_id", prof.UserID, "err", err)
+	}
+	if n > 0 {
+		w := learnedWeight(n)
+		for id, v := range relevance.Standardize(learned) {
+			out[id] += w * v
+		}
+	}
+	return out
+}
+
+// excerptVectors returns the excerpt embeddings of the bare jobs and the
+// profile's, embedding up to maxExcerptsPerRank missing ones (best by
+// words first).
+func (e *Embedder) excerptVectors(ctx context.Context, pool *pgxpool.Pool, prof *store.Profile, bare []relevance.Doc, words map[int64]float64) (map[int64][]float32, []float32, error) {
+	pv, err := e.profileVector(ctx, pool, prof)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]int64, len(bare))
+	for i, d := range bare {
+		ids[i] = d.ID
+	}
+	vecs, err := store.JobEmbeddings(ctx, pool, ids, e.excerptKey())
+	if err != nil {
+		return nil, pv, err
+	}
+	var todo []relevance.Doc
+	for _, d := range bare {
+		if vecs[d.ID] == nil {
+			todo = append(todo, d)
+		}
+	}
+	sort.SliceStable(todo, func(a, b int) bool { return words[todo[a].ID] > words[todo[b].ID] })
+	todo = todo[:min(len(todo), maxExcerptsPerRank)]
+	if len(todo) == 0 {
+		return vecs, pv, nil
+	}
+	texts := make([]string, len(todo))
+	for i, d := range todo {
+		texts[i] = e.DocPrefix + ExcerptText(d.Title, d.Body)
+	}
+	got, err := e.Client.Embed(ctx, texts)
+	if err != nil {
+		return vecs, pv, fmt.Errorf("embed postings: %w", err)
+	}
+	batch := make(map[int64][]float32, len(todo))
+	for i, d := range todo {
+		batch[d.ID] = got[i]
+		vecs[d.ID] = got[i]
+	}
+	return vecs, pv, store.SaveJobEmbeddings(ctx, pool, e.excerptKey(), batch)
 }
 
 // Blend weights. Each signal is standardized over the user's candidates
@@ -277,19 +395,9 @@ func Blend(markdown string, prefs config.Preferences, titles map[int64]string, f
 // facts, and those jobs' embeddings, embedding the profile and any postings
 // not embedded yet. On an error it still returns what it could compute.
 func (e *Embedder) Similarities(ctx context.Context, pool *pgxpool.Pool, prof *store.Profile, jobIDs []int64) (map[int64]float64, map[int64][]float32, error) {
-	pv, err := store.ProfileEmbedding(ctx, pool, prof.UserID, prof.ProfileHash, e.profileKey())
+	pv, err := e.profileVector(ctx, pool, prof)
 	if err != nil {
 		return nil, nil, err
-	}
-	if pv == nil {
-		vecs, err := e.Client.Embed(ctx, []string{e.QueryPrefix + embed.ProfileText(prof.Markdown)})
-		if err != nil {
-			return nil, nil, fmt.Errorf("embed profile: %w", err)
-		}
-		pv = vecs[0]
-		if err := store.SaveProfileEmbedding(ctx, pool, prof.UserID, prof.ProfileHash, e.profileKey(), pv); err != nil {
-			return nil, nil, err
-		}
 	}
 	_, embedErr := e.EmbedJobs(ctx, pool, jobIDs)
 	vecs, err := store.JobEmbeddings(ctx, pool, jobIDs, e.jobKey())
@@ -301,6 +409,21 @@ func (e *Embedder) Similarities(ctx context.Context, pool *pgxpool.Pool, prof *s
 		sims[id] = embed.Cosine(pv, v)
 	}
 	return sims, vecs, embedErr
+}
+
+// profileVector returns the profile's embedding, embedding it the first
+// time for this text.
+func (e *Embedder) profileVector(ctx context.Context, pool *pgxpool.Pool, prof *store.Profile) ([]float32, error) {
+	pv, err := store.ProfileEmbedding(ctx, pool, prof.UserID, prof.ProfileHash, e.profileKey())
+	if err != nil || pv != nil {
+		return pv, err
+	}
+	vecs, err := e.Client.Embed(ctx, []string{e.QueryPrefix + embed.ProfileText(prof.Markdown)})
+	if err != nil {
+		return nil, fmt.Errorf("embed profile: %w", err)
+	}
+	pv = vecs[0]
+	return pv, store.SaveProfileEmbedding(ctx, pool, prof.UserID, prof.ProfileHash, e.profileKey(), pv)
 }
 
 // Learning from a user's scores. Measured on seven users' real queues: of the
