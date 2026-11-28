@@ -54,6 +54,9 @@ type Env struct {
 	FactsPerRun int
 	// MatchConcurrency is how many users a run matches at once.
 	MatchConcurrency int
+	// AssistantPerDay is how many Ask Wera questions a user may ask per
+	// rolling 24 hours (0 = only the budget limits apply).
+	AssistantPerDay int
 
 	// Accounts and browser security.
 	SignupEnabled  bool     // POST /api/auth/signup open to anyone
@@ -86,6 +89,7 @@ func LoadEnv() (*Env, error) {
 		InactiveScoresPerDay: 10,
 		FactsPerRun:          300,
 		MatchConcurrency:     3,
+		AssistantPerDay:      30,
 		SignupEnabled:        true,
 		SignupsPerHour:       5,
 	}
@@ -179,6 +183,7 @@ func LoadEnv() (*Env, error) {
 		e.EmbedDocPrefix = &v
 	}
 	intVal("SCORES_PER_DAY", &e.ScoresPerDay)
+	intVal("ASSISTANT_PER_DAY", &e.AssistantPerDay)
 	intVal("SCORES_PER_RUN", &e.ScoresPerRun)
 	intVal("INACTIVE_AFTER_DAYS", &e.InactiveAfterDays)
 	intVal("INACTIVE_SCORES_PER_DAY", &e.InactiveScoresPerDay)

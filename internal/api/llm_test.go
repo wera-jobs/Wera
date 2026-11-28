@@ -107,6 +107,17 @@ func (f *fakeLLM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		content = fmt.Sprintf(`{"bullets":{%q:"Cut costs by 87%% on Kubernetes",%q:"Ran Kubernetes on-call for 2,000 requests per second"},"notes":["Led with Kubernetes"]}`, ids[0][1], ids[1][1])
 	case strings.HasPrefix(system, "You convert the text of a resume into JSON"):
 		content = `{"name":"Test User","email":"t@example.com","sections":[{"kind":"entries","title":"Experience","entries":[{"heading":"Acme","subheading":"SRE Intern","bullets":[{"text":"SRE intern at Acme 2024."}]}]}]}`
+	case strings.HasPrefix(system, "You are Wera's assistant"):
+		f.lastUser.Store(req.Messages[len(req.Messages)-1].Content)
+		// Streamed in pieces, with a dash to clean and the data it used named.
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, piece := range []string{"Yes, apply: ", "the posting asks for Kubernetes [job] ", "and you run it on call [resume] — daily."} {
+			b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": piece}}}})
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			w.(http.Flusher).Flush()
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":900,\"completion_tokens\":40}}\n\ndata: [DONE]\n\n")
+		return
 	default:
 		http.Error(w, "unexpected prompt", http.StatusBadRequest)
 		return
@@ -130,7 +141,7 @@ func llmServer(t *testing.T) (*httptest.Server, *fakeLLM) {
 		s.Env = &config.Env{
 			AI: config.AI{APIKey: "cb_test", BaseURL: fake.URL,
 				Model: "deepseek-v4.1-flash-fast", DeepModel: "deepseek-v4.1-flash-fast"},
-			MaxCostPerRunUSD: 1, UserBudgetUSD: 5, MaxMonthlyCostUSD: 1e6,
+			MaxCostPerRunUSD: 1, UserBudgetUSD: 5, MaxMonthlyCostUSD: 1e6, AssistantPerDay: 30,
 		}
 		s.Moderator = nil
 	})

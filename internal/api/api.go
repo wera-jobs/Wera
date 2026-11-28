@@ -237,6 +237,11 @@ func (s *Server) Handler() http.Handler {
 			r.Delete("/posts/{id}/reactions/{kind}", s.react)
 
 			r.Get("/interview/domains", s.interviewDomains)
+			r.Post("/assistant", s.askAssistant)
+			r.Get("/assistant/threads", s.assistantThreads)
+			r.Delete("/assistant/threads", s.deleteAssistantThreads)
+			r.Get("/assistant/threads/{id}", s.assistantThread)
+			r.Delete("/assistant/threads/{id}", s.deleteAssistantThread)
 			r.Get("/interview/quiz", s.interviewQuiz)
 			r.Post("/interview/questions/{id}/answer", s.interviewAnswer)
 			r.Get("/interview/tracks", s.interviewTracks)
