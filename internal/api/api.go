@@ -172,6 +172,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/auth/password/forgot", s.forgotPassword)
 		r.Post("/auth/password/reset", s.resetPassword)
 		r.Post("/ext/tokens", s.createExtToken)
+		r.Post("/inbound-email", s.receiveEmail) // signed by the email worker
 
 		// Everything else needs a session.
 		r.Group(func(r chi.Router) {
@@ -242,6 +243,12 @@ func (s *Server) Handler() http.Handler {
 			r.Delete("/assistant/threads", s.deleteAssistantThreads)
 			r.Get("/assistant/threads/{id}", s.assistantThread)
 			r.Delete("/assistant/threads/{id}", s.deleteAssistantThread)
+			r.Get("/inbound-address", s.getInboundAddress)
+			r.Post("/inbound-address", s.newInboundAddress)
+			r.Delete("/inbound-address", s.deleteInboundAddress)
+			r.Get("/email-suggestions", s.emailSuggestions)
+			r.Post("/email-suggestions/{id}/accept", s.decideEmailSuggestion(true))
+			r.Post("/email-suggestions/{id}/dismiss", s.decideEmailSuggestion(false))
 			r.Get("/interview/quiz", s.interviewQuiz)
 			r.Post("/interview/questions/{id}/answer", s.interviewAnswer)
 			r.Get("/interview/tracks", s.interviewTracks)

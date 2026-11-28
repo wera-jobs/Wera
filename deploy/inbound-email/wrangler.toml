@@ -1,0 +1,8 @@
+name = "wera-inbound-email"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+WERA_URL = "https://api.wera-jobs.com/api/inbound-email"
+
+# The secret is not kept here: wrangler secret put INBOUND_EMAIL_SECRET

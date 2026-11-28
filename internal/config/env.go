@@ -57,6 +57,11 @@ type Env struct {
 	// AssistantPerDay is how many Ask Wera questions a user may ask per
 	// rolling 24 hours (0 = only the budget limits apply).
 	AssistantPerDay int
+	// InboundEmailDomain is the domain of users' forwarding addresses
+	// (u-<token>@domain), and InboundEmailSecret signs what the email
+	// worker posts; forwarding is off unless both are set.
+	InboundEmailDomain string
+	InboundEmailSecret string
 
 	// Accounts and browser security.
 	SignupEnabled  bool     // POST /api/auth/signup open to anyone
@@ -184,6 +189,8 @@ func LoadEnv() (*Env, error) {
 	}
 	intVal("SCORES_PER_DAY", &e.ScoresPerDay)
 	intVal("ASSISTANT_PER_DAY", &e.AssistantPerDay)
+	str("INBOUND_EMAIL_DOMAIN", &e.InboundEmailDomain)
+	str("INBOUND_EMAIL_SECRET", &e.InboundEmailSecret)
 	intVal("SCORES_PER_RUN", &e.ScoresPerRun)
 	intVal("INACTIVE_AFTER_DAYS", &e.InactiveAfterDays)
 	intVal("INACTIVE_SCORES_PER_DAY", &e.InactiveScoresPerDay)
