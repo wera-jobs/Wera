@@ -65,7 +65,10 @@ type JobView struct {
 	NextStepAt      *time.Time `json:"next_step_at"`
 	Contact         *Contact   `json:"contact"`
 	ArchivedAt      *time.Time `json:"archived_at"` // off the tracker's board, history kept
-	AppNotes        *string    `json:"application_notes"`
+	// AppliedAt is when the user applied (their own date when they set
+	// one); nil when they never did.
+	AppliedAt *time.Time `json:"applied_at"`
+	AppNotes  *string    `json:"application_notes"`
 	// EstimatedScore is shown until the full AI score arrives: the AI's
 	// quick grade when there is one (EstimateAI), else the local relevance
 	// estimate (35..85).
@@ -177,7 +180,7 @@ const jobViewSelect = `
 	       a.fit_score, a.verdict, a.seniority, a.years_required,
 	       a.sponsorship, a.work_mode, a.location_summary,
 	       a.skills_matched, a.skills_missing, a.reason,
-	       ap.status, ap.notes, ap.dismiss_reason, ap.next_step, ap.next_step_at, ap.contact, ap.archived_at, uj.estimated_score,
+	       ap.status, ap.notes, ap.dismiss_reason, ap.next_step, ap.next_step_at, ap.contact, ap.archived_at, ap.applied_at, uj.estimated_score,
 	       EXISTS (SELECT 1 FROM quick_grades q WHERE q.user_id = uj.user_id AND q.job_id = j.id),
 	       (SELECT max(r.updated_at) FROM autofill_runs r WHERE r.user_id = uj.user_id AND r.job_id = j.id),
 	       j.closed_at, j.pay_min::float8, j.pay_max::float8, j.pay_currency, j.pay_period,
@@ -206,7 +209,7 @@ func jobViewScan(v *JobView) []any {
 		&v.FitScore, &v.Verdict, &v.Seniority, &v.YearsRequired,
 		&v.Sponsorship, &v.WorkMode, &v.LocationSummary,
 		&v.SkillsMatched, &v.SkillsMissing, &v.Reason,
-		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
+		&v.AppStatus, &v.AppNotes, &v.DismissReason, &v.NextStep, &v.NextStepAt, &v.Contact, &v.ArchivedAt, &v.AppliedAt, &v.EstimatedScore, &v.EstimateAI, &v.AutofilledAt, &v.ClosedAt,
 		&v.PayMin, &v.PayMax, &v.PayCurrency, &v.PayPeriod, &v.ratings, &v.Early, &v.logoAt, &v.apResume, &v.apLetter, &v.runFiles, &v.CompanyFollowed}
 }
 
