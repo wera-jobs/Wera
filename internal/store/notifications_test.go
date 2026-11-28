@@ -28,7 +28,8 @@ func TestMakeNotifications(t *testing.T) {
 		if err := pool.QueryRow(ctx, `
 			INSERT INTO analyses (job_id, kind, model, profile_hash, fit_score, raw, user_id, created_at)
 			VALUES ($1, 'score', 'test', $2, $3, '{}', $4, $5) RETURNING id`,
-			job, testutil.Unique("h"), fit, user, now.Add(-time.Minute)).Scan(&aid); err != nil {
+			// Scored at now itself: a minute earlier falls on yesterday in the first minute of a UTC day.
+			job, testutil.Unique("h"), fit, user, now).Scan(&aid); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage, analysis_id) VALUES ($1, $2, 'h', 'scored', $3)`, user, job, aid); err != nil {
