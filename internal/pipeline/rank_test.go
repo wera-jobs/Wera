@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"wera/internal/config"
+	"wera/internal/embed"
 	"wera/internal/scoring"
 	"wera/internal/store"
 	"wera/internal/testutil"
@@ -357,5 +358,65 @@ func mustScore(t *testing.T, pool *pgxpool.Pool, userID, jobID int64, key string
 		INSERT INTO analyses (job_id, kind, model, profile_hash, fit_score, raw, user_id)
 		VALUES ($1, 'score', 'test', $2, $3, '{}', $4)`, jobID, key, score, userID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestRankWithoutFacts: postings with no facts yet are ranked by the
+// embedding of their opening too, each embedded once, and the excerpt
+// vector gives way to the facts vector once facts exist.
+func TestRankWithoutFacts(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	embedder := &fakeEmbed{}
+	esrv := httptest.NewServer(embedder)
+	t.Cleanup(esrv.Close)
+	model := testutil.Unique("embed")
+	e := &Embedder{Client: embed.New(esrv.URL, model, ""), Model: model, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM job_embeddings WHERE model LIKE $1 || '%'`, model)
+	})
+
+	companyID, _ := testutil.Company(t, pool, "ai_ml")
+	// The same words, so only the embeddings tell them apart.
+	ids := testutil.Jobs(t, pool, companyID,
+		testutil.Job{Title: "Site Reliability Engineer, Zeta Cloud", Location: "Remote, US", Description: "Keep Go services healthy."},
+		testutil.Job{Title: "Platform Engineer, Zeta Cloud", Location: "Remote, US", Description: "Keep Go services healthy."},
+	)
+	u := testutil.User(t, pool, false)
+	prof := testutil.Profile(t, pool, u.ID, sreProfile+"\n"+testutil.Unique("note"), srePrefs)
+	for _, id := range ids {
+		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage) VALUES ($1, $2, 'h', 'pending_score')`, u.ID, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	est, err := RankPending(ctx, pool, e, prof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(est[ids[1]] > est[ids[0]]) {
+		t.Errorf("the posting nearer the profile should rank first: %v", est)
+	}
+	vecs, _ := store.JobEmbeddings(ctx, pool, ids, e.excerptKey())
+	if len(vecs) != 2 {
+		t.Fatalf("excerpt vectors stored: %d", len(vecs))
+	}
+	texts := embedder.texts.Load()
+	if _, err := RankPending(ctx, pool, e, prof); err != nil {
+		t.Fatal(err)
+	}
+	if embedder.texts.Load() != texts {
+		t.Errorf("ranking again embedded %d more texts", embedder.texts.Load()-texts)
+	}
+	if todo, _ := store.JobsToEmbed(ctx, pool, ids, e.jobKey()); len(todo) != 0 {
+		t.Errorf("no facts yet, so nothing to embed from facts: %d", len(todo))
+	}
+}
+
+func TestExcerptText(t *testing.T) {
+	if got := ExcerptText("SRE", "  Keep\n\nthings   up. "); got != "SRE. Keep things up." {
+		t.Errorf("%q", got)
+	}
+	if got := []rune(ExcerptText("T", strings.Repeat("é", 2000))); len(got) != excerptRunes+3 {
+		t.Errorf("length %d", len(got))
 	}
 }
