@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.0](https://github.com/wera-jobs/Wera/compare/wera-v0.37.0...wera-v0.38.0) (2026-11-28)
+
+
+### Features
+
+* **api:** add applied_at to job views and reply rates by fit band ([39be929](https://github.com/wera-jobs/Wera/commit/39be9297a951c967b715989911f4a5cd208daa54))
+* **api:** add applied_at to job views and reply rates by fit band to application analytics ([3a2e972](https://github.com/wera-jobs/Wera/commit/3a2e97283442d48cb56c95c428f6df887f0ee248))
+
 ## [0.37.0](https://github.com/wera-jobs/Wera/compare/wera-v0.36.1...wera-v0.37.0) (2026-11-26)
 
 
