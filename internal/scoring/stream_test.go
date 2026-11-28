@@ -11,8 +11,7 @@ import (
 
 func TestChatStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Query().Get("case") {
-		case "busy":
+		if r.URL.Query().Get("case") == "busy" {
 			http.Error(w, "slow down", http.StatusTooManyRequests)
 			return
 		}

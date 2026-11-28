@@ -232,14 +232,14 @@ func Match(e *Email, apps []App) *App {
 	}
 	// One company, several roles: the title named decides.
 	all := head + " " + body
-	var named []*App
+	named := make([]*App, 0, 2)
 	longest := 0
 	for _, a := range tied {
 		t := norm(a.Title)
 		if containsWords(all, t) {
 			switch {
 			case len(t) > longest:
-				named, longest = []*App{a}, len(t)
+				named, longest = append(named[:0], a), len(t)
 			case len(t) == longest:
 				named = append(named, a)
 			}

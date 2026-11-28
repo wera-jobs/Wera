@@ -35,15 +35,16 @@ func TestCorpus(t *testing.T) {
 		if a := Match(e, corpusApps); a != nil {
 			gotJob = a.JobID
 		}
-		if c.job != 0 && c.kind != "" {
+		switch {
+		case c.job != 0 && c.kind != "":
 			about++
 			if gotJob == c.job && kind == c.kind {
 				right++
 				continue
 			}
-		} else if gotJob == 0 || kind == "" {
+		case gotJob == 0 || kind == "":
 			continue
-		} else {
+		default:
 			falseHits++
 		}
 		t.Logf("miss %d %q: want job %d %q, got job %d %q", i, c.subject, c.job, c.kind, gotJob, kind)

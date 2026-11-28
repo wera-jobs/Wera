@@ -94,7 +94,7 @@ func (s *Server) askAssistant(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusInternalServerError, "query failed")
 			return
 		}
-		if job, err = s.assistantJob(ctx, user.ID, v); err != nil {
+		if job, err = s.assistantJob(ctx, v); err != nil {
 			s.Log.Error("assistant job context failed", "err", err)
 			s.writeError(w, http.StatusInternalServerError, "query failed")
 			return
@@ -224,7 +224,7 @@ func (s *Server) streamForUser(ctx context.Context, userID int64, kind string, m
 
 // assistantJob is what the assistant knows of one job: the posting, its
 // facts digest, Wera's fit review, the H-1B summary and the tracker state.
-func (s *Server) assistantJob(ctx context.Context, userID int64, v *store.JobView) (*profile.AssistantJob, error) {
+func (s *Server) assistantJob(ctx context.Context, v *store.JobView) (*profile.AssistantJob, error) {
 	desc, err := store.JobDescription(ctx, s.Pool, v.ID)
 	if err != nil {
 		return nil, err

@@ -40,7 +40,7 @@ func (e *Email) FromDomain() string {
 // maxText is how much body text is read: replies put what matters first.
 const maxText = 20000
 
-var decoder = &mime.WordDecoder{CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
+var decoder = &mime.WordDecoder{CharsetReader: func(_ string, input io.Reader) (io.Reader, error) {
 	return input, nil // UTF-8, ASCII and Latin-1 read well enough for matching
 }}
 
@@ -69,11 +69,7 @@ func Parse(raw []byte) (*Email, error) {
 	if d, err := m.Header.Date(); err == nil {
 		e.Date = d
 	}
-	text, err := bodyText(m.Header.Get("Content-Type"), m.Header.Get("Content-Transfer-Encoding"), m.Body, 0)
-	if err != nil {
-		return nil, err
-	}
-	e.Text = text
+	e.Text = bodyText(m.Header.Get("Content-Type"), m.Header.Get("Content-Transfer-Encoding"), m.Body, 0)
 	if len(e.Text) > maxText {
 		e.Text = e.Text[:maxText]
 	}
@@ -83,9 +79,9 @@ func Parse(raw []byte) (*Email, error) {
 
 // bodyText returns the best text of a part: text/plain first, else HTML
 // as text. Attachments are skipped.
-func bodyText(contentType, encoding string, r io.Reader, depth int) (string, error) {
+func bodyText(contentType, encoding string, r io.Reader, depth int) string {
 	if depth > 5 {
-		return "", nil
+		return ""
 	}
 	mt, params, err := mime.ParseMediaType(contentType)
 	if err != nil || contentType == "" {
@@ -96,18 +92,15 @@ func bodyText(contentType, encoding string, r io.Reader, depth int) (string, err
 		var plain, htm string
 		for {
 			p, err := mr.NextPart()
-			if err == io.EOF {
-				break
-			}
 			if err != nil {
-				break // keep what was read
+				break // the end, or a broken part: keep what was read
 			}
 			if strings.HasPrefix(strings.ToLower(p.Header.Get("Content-Disposition")), "attachment") {
 				continue
 			}
 			pt := p.Header.Get("Content-Type")
-			t, err := bodyText(pt, p.Header.Get("Content-Transfer-Encoding"), p, depth+1)
-			if err != nil || strings.TrimSpace(t) == "" {
+			t := bodyText(pt, p.Header.Get("Content-Transfer-Encoding"), p, depth+1)
+			if strings.TrimSpace(t) == "" {
 				continue
 			}
 			if strings.HasPrefix(strings.ToLower(pt), "text/html") {
@@ -119,28 +112,25 @@ func bodyText(contentType, encoding string, r io.Reader, depth int) (string, err
 			}
 		}
 		if plain != "" {
-			return plain, nil
+			return plain
 		}
-		return htm, nil
+		return htm
 	}
 	if !strings.HasPrefix(mt, "text/") {
-		return "", nil
+		return ""
 	}
-	var body io.Reader = io.LimitReader(r, 1<<20)
+	body := io.LimitReader(r, 1<<20)
 	switch strings.ToLower(strings.TrimSpace(encoding)) {
 	case "quoted-printable":
 		body = quotedprintable.NewReader(body)
 	case "base64":
 		body = base64.NewDecoder(base64.StdEncoding, &stripSpace{r: body})
 	}
-	b, err := io.ReadAll(body)
-	if err != nil && len(b) == 0 {
-		return "", nil
-	}
+	b, _ := io.ReadAll(body) // a broken encoding keeps what decoded
 	if mt == "text/html" {
-		return htmlText(string(b)), nil
+		return htmlText(string(b))
 	}
-	return strings.ReplaceAll(string(b), "\r\n", "\n"), nil
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 // stripSpace drops the line breaks inside base64 bodies.
