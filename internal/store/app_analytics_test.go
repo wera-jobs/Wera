@@ -23,8 +23,14 @@ func TestApplicationAnalytics(t *testing.T) {
 	me := testutil.User(t, pool, false)
 	companyID, _ := testutil.Company(t, pool, "other")
 	ids := testutil.Jobs(t, pool, companyID, testutil.Job{Title: "A1"}, testutil.Job{Title: "A2"}, testutil.Job{Title: "A3"}, testutil.Job{Title: "A4"})
-	for _, id := range ids {
-		if _, err := pool.Exec(ctx, `INSERT INTO user_jobs (user_id, job_id, content_hash, stage) VALUES ($1, $2, 'h', 'scored')`, me.ID, id); err != nil {
+	// A1 and A2 scored 85 and 82, A3 64, A4 unscored.
+	for i, id := range ids {
+		fit := []any{85, 82, 64, nil}[i]
+		if _, err := pool.Exec(ctx, `
+			WITH a AS (INSERT INTO analyses (job_id, kind, model, profile_hash, fit_score, raw, user_id)
+			           SELECT $2, 'score', 'test', 'k', $3::int, '{}', $1 WHERE $3::int IS NOT NULL RETURNING id)
+			INSERT INTO user_jobs (user_id, job_id, content_hash, stage, analysis_id)
+			VALUES ($1, $2, 'h', 'scored', (SELECT id FROM a))`, me.ID, id, fit); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -76,6 +82,11 @@ func TestApplicationAnalytics(t *testing.T) {
 	}
 	if len(a.Sources) != 1 || a.Sources[0].Applied != 3 || a.Sources[0].Responded != 2 || a.Sources[0].Interview != 1 {
 		t.Errorf("sources: %+v", a.Sources)
+	}
+	// The two 80+ applications both heard back; the 64 one did not.
+	if len(a.Fits) != 2 || a.Fits[0] != (store.SourceStat{Source: "80+", Applied: 2, Responded: 2, Interview: 1}) ||
+		a.Fits[1] != (store.SourceStat{Source: "60-79", Applied: 1}) {
+		t.Errorf("fits: %+v", a.Fits)
 	}
 	var changes int
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM application_changes WHERE user_id = $1 AND job_id = $2`, me.ID, ids[3]).Scan(&changes)
